@@ -8,6 +8,13 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gosu \
     imagemagick \
+    libjpeg-turbo8 \
+    libwebp7 \
+    libtiff5 \
+    libpng16-16 \
+    libavif13 \ 
+    libgif7 \
+    zlib1g \
     poppler-utils \
     file \
     python3 \

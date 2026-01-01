@@ -112,6 +112,20 @@ progress_lock = threading.Lock()
 
 # 检查文件是否为图片
 def is_image_file(filename):
+    """
+    检查文件是否为支持的图片格式
+    
+    Args:
+        filename (str): 文件名或文件路径
+        
+    Returns:
+        bool: 如果是支持的图片格式返回True，否则返回False
+        
+    说明：
+        - 使用os.path.splitext获取扩展名，更可靠的方法
+        - 将扩展名转换为小写，确保大小写不敏感
+        - 检查扩展名是否在SUPPORTED_FORMATS字典中
+    """
     # 使用os.path.splitext获取扩展名，更可靠的方法
     ext = os.path.splitext(filename)[1].lower()[1:]  # [1:] 移除点号
     return ext in SUPPORTED_FORMATS
@@ -120,6 +134,22 @@ def is_image_file(filename):
 def compress_image_with_imagemagick(img_path, quality):
     """
     使用ImageMagick压缩图片
+    
+    Args:
+        img_path (str): 图片文件路径
+        quality (int): 压缩质量，1-100，数值越高质量越好，文件越大
+        
+    Returns:
+        bool: 压缩成功返回True，失败返回False
+        
+    说明：
+        - 根据操作系统选择合适的ImageMagick命令
+        - 在Windows上使用magick命令
+        - 在Linux上先尝试magick命令（ImageMagick 7+），失败则回退到convert命令（ImageMagick 6）
+        - 使用-strip参数移除元数据，减小文件大小
+        - 使用-interlace Plane生成渐进式JPEG，提高网页加载体验
+        - 使用-sampling-factor 4:2:0进行色度抽样，平衡质量和大小
+        - 使用-colorspace sRGB确保输出图片使用sRGB色彩空间，提高兼容性
     """
     try:
         # 使用更可靠的命令构建方式，确保中文路径被正确处理
@@ -176,6 +206,23 @@ def compress_image_with_imagemagick(img_path, quality):
 def convert_image_with_imagemagick(img_path, target_format, quality):
     """
     使用ImageMagick转换图片格式
+    
+    Args:
+        img_path (str): 图片文件路径
+        target_format (str): 目标格式，如'jpg'、'png'、'webp'等
+        quality (int): 转换质量，1-100，数值越高质量越好，文件越大
+        
+    Returns:
+        tuple: (success, output_path)
+            success (bool): 转换成功返回True，失败返回False
+            output_path (str): 转换后的文件路径，如果是PDF文件转换则返回原路径
+        
+    说明：
+        - 支持普通图片格式转换和PDF文件转图片
+        - 对于PDF文件，使用pdf2image库处理，支持多页转换
+        - 普通图片转换时，生成新的文件名，保留原文件名但更改扩展名
+        - 检查转换后的文件是否已存在，如果存在则跳过
+        - 对于目标格式为jpeg的情况，自动转换为jpg，保持一致性
     """
     try:
         # 获取文件扩展名
@@ -278,10 +325,35 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
 
 # 获取文件大小
 def get_file_size(filepath):
+    """
+    获取文件大小
+    
+    Args:
+        filepath (str): 文件路径
+        
+    Returns:
+        int: 文件大小，单位为字节
+    """
     return os.path.getsize(filepath)
 
 # 遍历目录获取所有图片文件
 def get_all_images(directory, exclude_formats=None):
+    """
+    遍历目录获取所有图片文件，支持排除指定格式
+    
+    Args:
+        directory (str): 要遍历的目录路径
+        exclude_formats (list, optional): 要排除的图片格式列表，默认为None
+        
+    Returns:
+        list: 图片文件路径列表
+        
+    说明：
+        - 使用os.walk遍历目录及其子目录
+        - 只返回支持的图片格式文件
+        - 支持通过exclude_formats参数排除指定格式
+        - 排除格式时使用小写扩展名比较，确保大小写不敏感
+    """
     images = []
     for root, dirs, files in os.walk(directory):
         for file in files:
