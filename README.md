@@ -13,11 +13,13 @@
 - ✅ **多线程处理**：根据CPU核心数动态调整线程数
 - ✅ **跨平台支持**：支持Windows和Linux系统
 - ✅ **Docker容器化**：提供Dockerfile，支持容器化部署
+- ✅ **专用压缩工具**：Linux平台使用jpegoptim、pngquant、cwebp进行压缩，提高压缩效率和质量
 
 ## 技术栈
 
 - **后端**：Flask
 - **图像处理**：Pillow, ImageMagick
+- **专用压缩工具**：jpegoptim, pngquant, cwebp (仅Linux平台)
 - **前端**：HTML, CSS, JavaScript, Bootstrap
 - **并发处理**：concurrent.futures
 - **容器化**：Docker
@@ -27,6 +29,7 @@
 - Python 3.8+
 - ImageMagick 6+
 - Docker (可选，用于容器化部署)
+- 专用压缩工具（Linux平台）：jpegoptim, pngquant, cwebp (Docker容器中已自动安装)
 
 ## 快速开始
 
@@ -208,6 +211,10 @@ image-processor/
 - 跳过小于指定大小的文件，避免不必要的处理
 - 转换时跳过相同格式的文件，提高效率
 - 使用Pillow和ImageMagick的优化选项，优化输出文件
+- Linux平台使用专用压缩工具：
+  - JPG/JPEG格式使用jpegoptim，提供更好的压缩效果和速度
+  - PNG格式使用pngquant，提供更优的压缩质量和体积
+  - WebP格式使用cwebp，提供更高的压缩效率
 
 ## 故障排除
 
