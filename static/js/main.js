@@ -258,6 +258,9 @@ $(document).ready(function() {
         // 隐藏配置模态框
         $('#compress-modal').modal('hide');
         
+        // 更新进度标题
+        $('#progress-title').text('图片压缩');
+        
         // 显示进度
         $('#progress-overlay').show();
         
@@ -317,6 +320,9 @@ $(document).ready(function() {
         // 隐藏配置模态框
         $('#convert-modal').modal('hide');
         
+        // 更新进度标题
+        $('#progress-title').text(`图片转换成${targetFormat}`);
+        
         // 显示进度
         $('#progress-overlay').show();
         
@@ -375,6 +381,9 @@ $(document).ready(function() {
         $('#processed-files').text('0');
         $('#current-file').text('');
         $('#progress-bar').css('width', '0%').attr('aria-valuenow', '0');
+        
+        // 重置进度标题
+        $('#progress-title').text('处理进度');
         
         // 隐藏文件列表
         $('#failed-files-section').hide();
