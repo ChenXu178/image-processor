@@ -34,6 +34,23 @@
                     <p>处理后大小: <span id="final-size">0</span> MB</p>
                     <p>压缩率: <span id="compression-rate">0</span>%</p>
                 </div>
+                
+                <!-- 失败文件列表 -->
+                <div id="failed-files-section" style="display: none; margin-top: 20px;">
+                    <h3>失败文件列表 <span id="failed-files-count" class="badge badge-danger"></span></h3>
+                    <div id="failed-files" class="file-list-container" style="max-height: 200px; overflow-y: auto; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px;">
+                        <!-- 失败文件列表将通过JS动态生成 -->
+                    </div>
+                </div>
+                
+                <!-- 跳过文件列表 -->
+                <div id="skipped-files-section" style="display: none; margin-top: 20px;">
+                    <h3>跳过文件列表 <span id="skipped-files-count" class="badge badge-warning"></span></h3>
+                    <div id="skipped-files" class="file-list-container" style="max-height: 200px; overflow-y: auto; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 10px;">
+                        <!-- 跳过文件列表将通过JS动态生成 -->
+                    </div>
+                </div>
+                
                 <button id="close-progress" class="btn btn-primary" style="display: none;">关闭</button>
             </div>
         </div>

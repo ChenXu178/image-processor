@@ -103,7 +103,9 @@ progress_data = {
     'end_time': None,
     'original_size': 0,
     'final_size': 0,
-    'current_file': ''  # 当前正在处理的图片路径
+    'current_file': '',  # 当前正在处理的图片路径
+    'failed_files': [],  # 转换/压缩失败的文件列表
+    'skipped_files': []  # 已存在而跳过的文件列表
 }
 
 progress_lock = threading.Lock()
@@ -201,6 +203,8 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
                     # 检查文件是否已存在
                     if os.path.exists(output_filename):
                         logger.info(f"文件已存在，跳过: {output_filename}")
+                        with progress_lock:
+                            progress_data['skipped_files'].append(output_filename)
                         continue
                     # 保存图片
                     img.save(output_filename, quality=quality)
@@ -221,6 +225,8 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
             # 检查转换后的文件是否已存在，如果存在则跳过
             if os.path.exists(new_path):
                 logger.info(f"转换后的文件已存在，跳过: {new_path}")
+                with progress_lock:
+                    progress_data['skipped_files'].append(new_path)
                 return True, new_path
             
             # 使用更可靠的命令构建方式，确保中文路径被正确处理
@@ -697,18 +703,24 @@ def compress_images():
             'end_time': None,
             'original_size': 0,
             'final_size': 0,
-            'current_file': ''
+            'current_file': '',
+            'failed_files': [],
+            'skipped_files': []
         }
     
     # 获取所有图片文件
     all_images = []
+    total_selected = 0
     for path in selected_paths:
         if os.path.isdir(path):
             logger.info(f"获取目录中的图片: {path}")
-            all_images.extend(get_all_images(path))
+            dir_images = get_all_images(path)
+            all_images.extend(dir_images)
+            total_selected += len(dir_images)
         elif os.path.isfile(path) and is_image_file(path):
             logger.info(f"添加图片: {path}")
             all_images.append(path)
+            total_selected += 1
     
     logger.info(f"共找到 {len(all_images)} 个图片文件")
     
@@ -719,7 +731,7 @@ def compress_images():
         all_images = filtered_images
     
     with progress_lock:
-        progress_data['total'] = len(all_images)
+        progress_data['total'] = len(all_images) or total_selected or 1
     
     # 如果没有图片需要处理，直接完成
     if len(all_images) == 0:
@@ -727,6 +739,9 @@ def compress_images():
         with progress_lock:
             progress_data['status'] = 'completed'
             progress_data['end_time'] = datetime.now().isoformat()
+            # 确保进度条显示100%，使用实际选择的文件数
+            progress_data['total'] = total_selected
+            progress_data['processed'] = total_selected
         return jsonify({'status': 'started'})
     
     # 处理图片
@@ -756,14 +771,18 @@ def compress_images():
             if compress_image_with_imagemagick(img_path, quality):
                 final_size = get_file_size(img_path)
                 logger.info(f"压缩完成: {img_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
+                with progress_lock:
+                    progress_data['processed'] += 1
+                    progress_data['original_size'] += original_size
+                    progress_data['final_size'] += final_size
             else:
                 final_size = original_size
                 logger.error(f"压缩失败: {img_path}")
-            
-            with progress_lock:
-                progress_data['processed'] += 1
-                progress_data['original_size'] += original_size
-                progress_data['final_size'] += final_size
+                with progress_lock:
+                    progress_data['processed'] += 1
+                    progress_data['original_size'] += original_size
+                    progress_data['final_size'] += final_size
+                    progress_data['failed_files'].append(img_path)
         except Exception as e:
             logger.error(f"处理图片失败: {img_path}, 错误: {e}")
             with progress_lock:
@@ -847,11 +866,14 @@ def convert_images():
             'end_time': None,
             'original_size': 0,
             'final_size': 0,
-            'current_file': ''
+            'current_file': '',
+            'failed_files': [],
+            'skipped_files': []
         }
     
     # 获取所有图片文件，排除目标格式
     all_images = []
+    total_selected = 0
     target_format_lower = target_format.lower()
     
     # 处理目标格式，将jpeg转换为jpg，保持一致性
@@ -859,14 +881,27 @@ def convert_images():
     
     for path in selected_paths:
         if os.path.isdir(path):
+            # 先获取所有图片文件（包括目标格式），用于统计总数
+            all_files = get_all_images(path)
+            total_selected += len(all_files)
+            
             # 构建排除格式列表，包含jpg和jpeg如果目标是其中之一
             exclude_formats = [normalized_target]
             if normalized_target == 'jpg':
                 exclude_formats.append('jpeg')
             
             logger.info(f"获取目录中的图片，排除目标格式: {normalized_target}, 路径: {path}")
-            all_images.extend(get_all_images(path, exclude_formats=exclude_formats))
+            filtered_images = get_all_images(path, exclude_formats=exclude_formats)
+            all_images.extend(filtered_images)
+            
+            # 将被跳过的文件添加到skipped_files列表
+            skipped_files = [f for f in all_files if f not in filtered_images]
+            with progress_lock:
+                for f in skipped_files:
+                    progress_data['skipped_files'].append(f)
+                    progress_data['processed'] += 1
         elif os.path.isfile(path) and is_image_file(path):
+            total_selected += 1
             ext = os.path.basename(path).lower().split('.')[-1]
             
             # 规范化当前文件格式
@@ -877,11 +912,15 @@ def convert_images():
                 all_images.append(path)
             else:
                 logger.info(f"跳过图片: {path}, 当前格式与目标格式相同: {ext} -> {normalized_target}")
+                with progress_lock:
+                    progress_data['skipped_files'].append(path)
+                    progress_data['processed'] += 1
     
-    logger.info(f"共找到 {len(all_images)} 个需要转换的图片文件")
+    logger.info(f"共找到 {len(all_images)} 个需要转换的图片文件，总选择文件数: {total_selected}")
     
+    # 设置总文件数为实际选择的文件数
     with progress_lock:
-        progress_data['total'] = len(all_images)
+        progress_data['total'] = total_selected
     
     # 如果没有图片需要处理，直接完成
     if len(all_images) == 0:
@@ -889,6 +928,8 @@ def convert_images():
         with progress_lock:
             progress_data['status'] = 'completed'
             progress_data['end_time'] = datetime.now().isoformat()
+            # 确保进度条显示100%，使用实际选择的文件数
+            progress_data['processed'] = total_selected
         return jsonify({'status': 'started'})
     
     # 处理图片
@@ -924,6 +965,10 @@ def convert_images():
                     output_files = glob.glob(os.path.join(dirname, f"{basename}-*.{target_format}"))
                     final_size = sum(get_file_size(f) for f in output_files)
                     logger.info(f"PDF转图片生成 {len(output_files)} 个文件，总大小: {final_size} bytes")
+                    with progress_lock:
+                        progress_data['processed'] += 1
+                        progress_data['original_size'] += original_size
+                        progress_data['final_size'] += final_size
                 else:
                     if new_path != img_path:  # 只有当新路径和原路径不同时才删除原文件
                         # 检查转换后的文件是否是新创建的（不是跳过的）
@@ -934,23 +979,42 @@ def convert_images():
                                 os.remove(img_path)
                                 final_size = get_file_size(new_path)
                                 logger.info(f"转换完成: {img_path} -> {new_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
+                                with progress_lock:
+                                    progress_data['processed'] += 1
+                                    progress_data['original_size'] += original_size
+                                    progress_data['final_size'] += final_size
                             else:
                                 final_size = original_size
                                 logger.info(f"转换后的文件与原文件相同，跳过删除: {img_path}")
+                                with progress_lock:
+                                    progress_data['processed'] += 1
+                                    progress_data['original_size'] += original_size
+                                    progress_data['final_size'] += final_size
+                                    progress_data['skipped_files'].append(img_path)
                         else:
                             final_size = original_size
                             logger.error(f"转换失败: {img_path}")
+                            with progress_lock:
+                                progress_data['processed'] += 1
+                                progress_data['original_size'] += original_size
+                                progress_data['final_size'] += final_size
+                                progress_data['failed_files'].append(img_path)
                     else:
                         final_size = original_size
                         logger.info(f"转换后的文件与原文件路径相同，跳过: {img_path}")
+                        with progress_lock:
+                            progress_data['processed'] += 1
+                            progress_data['original_size'] += original_size
+                            progress_data['final_size'] += final_size
+                            progress_data['skipped_files'].append(img_path)
             else:
                 final_size = original_size
                 logger.error(f"转换失败: {img_path}")
-            
-            with progress_lock:
-                progress_data['processed'] += 1
-                progress_data['original_size'] += original_size
-                progress_data['final_size'] += final_size
+                with progress_lock:
+                    progress_data['processed'] += 1
+                    progress_data['original_size'] += original_size
+                    progress_data['final_size'] += final_size
+                    progress_data['failed_files'].append(img_path)
         except Exception as e:
             logger.error(f"处理图片失败: {img_path}, 错误: {e}")
             with progress_lock:
@@ -1019,7 +1083,9 @@ def reset_progress():
             'end_time': None,
             'original_size': 0,
             'final_size': 0,
-            'current_file': ''  # 当前正在处理的图片路径
+            'current_file': '',  # 当前正在处理的图片路径
+            'failed_files': [],
+            'skipped_files': []
         }
         logger.info("进度状态已重置为idle")
     return jsonify({'status': 'success'})

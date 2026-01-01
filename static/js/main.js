@@ -376,6 +376,10 @@ $(document).ready(function() {
         $('#current-file').text('');
         $('#progress-bar').css('width', '0%').attr('aria-valuenow', '0');
         
+        // 隐藏文件列表
+        $('#failed-files-section').hide();
+        $('#skipped-files-section').hide();
+        
         // 隐藏弹窗
         $('#progress-overlay').hide();
         $('#statistics').hide();
@@ -786,11 +790,47 @@ function updateProgress() {
                 $('#final-size').text(finalSize);
                 $('#compression-rate').text(compressionRate);
                 
+                // 处理失败文件列表
+                const failedFiles = response.failed_files || [];
+                const failedCount = failedFiles.length;
+                if (failedCount > 0) {
+                    $('#failed-files-section').show();
+                    $('#failed-files-count').text(failedCount);
+                    let failedHtml = '';
+                    for (const file of failedFiles) {
+                        const truncated = truncatePath(file, 100);
+                        failedHtml += `<div style="margin: 5px 0; padding: 5px; background-color: rgba(220, 53, 69, 0.8); color: white; border-radius: 4px;">${truncated}</div>`;
+                    }
+                    $('#failed-files').html(failedHtml);
+                } else {
+                    $('#failed-files-section').hide();
+                    $('#failed-files-count').text('');
+                }
+                
+                // 处理跳过文件列表
+                const skippedFiles = response.skipped_files || [];
+                const skippedCount = skippedFiles.length;
+                if (skippedCount > 0) {
+                    $('#skipped-files-section').show();
+                    $('#skipped-files-count').text(skippedCount);
+                    let skippedHtml = '';
+                    for (const file of skippedFiles) {
+                        const truncated = truncatePath(file, 100);
+                        skippedHtml += `<div style="margin: 5px 0; padding: 5px; background-color: rgba(255, 193, 7, 0.8); color: black; border-radius: 4px;">${truncated}</div>`;
+                    }
+                    $('#skipped-files').html(skippedHtml);
+                } else {
+                    $('#skipped-files-section').hide();
+                    $('#skipped-files-count').text('');
+                }
+                
                 log('debug', '统计信息更新完成:', {
                     totalTime: totalTime,
                     originalSize: originalSize,
                     finalSize: finalSize,
-                    compressionRate: compressionRate + '%'
+                    compressionRate: compressionRate + '%',
+                    failedFiles: failedFiles.length,
+                    skippedFiles: skippedFiles.length
                 });
                 
                 // 图片处理完成后，刷新文件列表
