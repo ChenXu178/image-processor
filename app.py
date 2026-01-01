@@ -148,6 +148,10 @@ progress_data = {
 
 progress_lock = threading.Lock()
 
+# 停止处理标记
+stop_processing_flag = False
+stop_lock = threading.Lock()
+
 # 检查文件是否为图片
 def is_image_file(filename):
     """
@@ -1210,6 +1214,14 @@ def compress_images():
         """
         global progress_data
         try:
+            # 检查是否需要停止处理
+            with stop_lock:
+                if stop_processing_flag:
+                    logger.info(f"停止处理，跳过图片: {img_path}")
+                    with progress_lock:
+                        progress_data['processed'] += 1
+                    return
+            
             # 检查文件扩展名，如果是PDF则跳过压缩
             ext = os.path.splitext(img_path)[1].lower()[1:]
             if ext == 'pdf':
@@ -1251,14 +1263,52 @@ def compress_images():
     def process_images_async():
         # 使用多线程处理
         logger.info(f"使用 {max_workers} 个线程开始处理图片")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            executor.map(process_image, all_images)
         
-        logger.info("所有图片处理完成")
+        # 检查是否需要停止处理
+        def should_stop():
+            with stop_lock:
+                return stop_processing_flag
+        
+        # 如果已经停止，直接返回
+        if should_stop():
+            logger.info("处理已停止，不再处理新图片")
+            with progress_lock:
+                progress_data['status'] = 'completed'
+                progress_data['end_time'] = datetime.now().isoformat()
+                progress_data['current_file'] = ''
+            return
+        
+        # 使用concurrent.futures处理图片，并支持中途停止
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交任务并检查停止标记
+            futures = []
+            for path in all_images:
+                # 检查是否需要停止处理
+                if should_stop():
+                    logger.info("收到停止请求，不再提交新任务")
+                    break
+                
+                # 提交单个任务
+                future = executor.submit(process_image, path)
+                futures.append(future)
+            
+            # 等待所有已提交的任务完成
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"处理图片时发生异常: {e}")
+        
+        logger.info("图片处理完成或已停止")
         with progress_lock:
             progress_data['status'] = 'completed'
             progress_data['end_time'] = datetime.now().isoformat()
             progress_data['current_file'] = ''
+        
+        # 重置停止标记
+        with stop_lock:
+            global stop_processing_flag
+            stop_processing_flag = False
     
     # 启动异步处理
     thread = threading.Thread(target=process_images_async)
@@ -1398,6 +1448,15 @@ def convert_images():
         """
         global progress_data
         try:
+            # 检查是否需要停止处理
+            with stop_lock:
+                if stop_processing_flag:
+                    logger.info(f"停止处理，跳过图片: {img_path}")
+                    # 直接返回，不再处理新的图片
+                    with progress_lock:
+                        progress_data['processed'] += 1
+                    return
+            
             logger.info(f"转换图片: {img_path}")
             
             # 更新当前正在处理的图片路径
@@ -1483,14 +1542,52 @@ def convert_images():
     def process_images_async():
         # 使用多线程处理
         logger.info(f"使用 {max_workers} 个线程开始处理图片转换")
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            executor.map(process_image, all_images)
         
-        logger.info("所有图片转换完成")
+        # 检查是否需要停止处理
+        def should_stop():
+            with stop_lock:
+                return stop_processing_flag
+        
+        # 如果已经停止，直接返回
+        if should_stop():
+            logger.info("处理已停止，不再处理新图片")
+            with progress_lock:
+                progress_data['status'] = 'completed'
+                progress_data['end_time'] = datetime.now().isoformat()
+                progress_data['current_file'] = ''
+            return
+        
+        # 使用concurrent.futures处理图片，并支持中途停止
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # 提交任务并检查停止标记
+            futures = []
+            for path in all_images:
+                # 检查是否需要停止处理
+                if should_stop():
+                    logger.info("收到停止请求，不再提交新任务")
+                    break
+                
+                # 提交单个任务
+                future = executor.submit(process_image, path)
+                futures.append(future)
+            
+            # 等待所有已提交的任务完成
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.error(f"处理图片时发生异常: {e}")
+        
+        logger.info("图片转换完成或已停止")
         with progress_lock:
             progress_data['status'] = 'completed'
             progress_data['end_time'] = datetime.now().isoformat()
             progress_data['current_file'] = ''
+        
+        # 重置停止标记
+        with stop_lock:
+            global stop_processing_flag
+            stop_processing_flag = False
     
     # 启动异步处理
     thread = threading.Thread(target=process_images_async)
@@ -1503,6 +1600,19 @@ def convert_images():
 def get_progress():
     with progress_lock:
         return jsonify(progress_data)
+
+@app.route('/stop_processing', methods=['POST'])
+def stop_processing():
+    """
+    停止当前正在进行的图片处理
+    请求方法: POST
+    返回: JSON格式的停止结果
+    """
+    global stop_processing_flag
+    with stop_lock:
+        stop_processing_flag = True
+    logger.info("收到停止处理请求")
+    return jsonify({'status': 'stopping'})
 
 @app.route('/get_supported_formats')
 def get_supported_formats():

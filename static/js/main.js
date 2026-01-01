@@ -29,6 +29,8 @@ let supportedFormats = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'heic', 'bmp', 'gi
 let progressInterval = null;
 // 是否正在进行图片处理（压缩或转换）
 let isProcessing = false;
+// 是否正在发送停止请求
+let isStopping = false;
 
 $(document).ready(function() {
     // 加载配置信息
@@ -390,6 +392,44 @@ $(document).ready(function() {
                 alert(errorMessage);
             }
         });
+    });
+    
+    // 停止处理按钮
+    $('#stop-progress').on('click', function() {
+        // 如果正在发送停止请求，不允许再次点击
+        if (isStopping) {
+            return;
+        }
+        
+        if (confirm('确定要停止当前处理吗？已开始处理的图片会继续完成，未开始的图片将被取消。')) {
+            // 设置停止请求标记
+            isStopping = true;
+            
+            // 将按钮置灰，不允许再次点击
+            $(this).prop('disabled', true).text('停止中...');
+            
+            // 发送停止请求
+            $.ajax({
+                url: '/stop_processing',
+                type: 'POST',
+                success: function(response) {
+                    log('info', '停止处理请求已发送');
+                    // 重置停止请求标记
+                    isStopping = false;
+                    // 停止请求成功后，保持停止按钮显示，但禁用并修改文本
+                    $('#stop-progress').prop('disabled', true).text('已停止');
+                    // 不要立即显示关闭按钮，等待处理完成后由updateProgress自动处理
+                },
+                error: function(xhr, status, error) {
+                    log('error', '发送停止请求失败', error);
+                    // 重置停止请求标记
+                    isStopping = false;
+                    // 恢复按钮状态
+                    $('#stop-progress').prop('disabled', false).text('停止处理');
+                    alert('停止请求失败: ' + error);
+                }
+            });
+        }
     });
     
     // 关闭进度按钮
@@ -995,7 +1035,15 @@ function updateProgress() {
                 log('debug', '进度状态为running，显示进度窗口');
                 // 处理运行中，显示进度窗口
                 $('#progress-overlay').show();
-                // 隐藏统计信息和关闭按钮
+                // 显示停止按钮，隐藏关闭按钮
+                $('#stop-progress').show();
+                // 只有在isStopping为false时才恢复停止按钮状态，避免覆盖停止中的状态
+                if (!isStopping && $('#stop-progress').text() !== '已停止') {
+                    // 恢复停止按钮状态
+                    $('#stop-progress').prop('disabled', false).text('停止处理');
+                    // 重置停止请求标记
+                    isStopping = false;
+                }
                 $('#statistics').hide();
                 $('#close-progress').hide();
                 
@@ -1007,6 +1055,12 @@ function updateProgress() {
                 }
             } else if (response.status === 'completed') {
                 log('debug', '进度状态为completed，显示统计信息');
+                // 隐藏停止按钮，显示关闭按钮
+                $('#stop-progress').hide();
+                // 处理完成后，重置停止按钮状态，确保下次显示时是正常状态
+                $('#stop-progress').prop('disabled', false).text('停止处理');
+                // 重置停止请求标记
+                isStopping = false;
                 // 显示统计信息
                 $('#statistics').show();
                 $('#close-progress').show();
