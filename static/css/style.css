@@ -1,0 +1,365 @@
+/* 全局样式 */
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background-color: #f8f9fa;
+    margin: 0;
+    padding: 0;
+}
+
+.container-fluid {
+    padding: 0;
+}
+
+/* 主容器 */
+.main-container {
+    margin: 20px;
+    background-color: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    min-height: calc(100vh - 40px);
+    overflow: auto;
+}
+
+/* Tab样式 */
+.nav-tabs {
+    margin-bottom: 20px;
+}
+
+.nav-tabs .nav-link {
+    color: #6c757d;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 12px 20px;
+    font-weight: 500;
+}
+
+.nav-tabs .nav-link.active {
+    color: #007bff;
+    border-bottom: 2px solid #007bff;
+    background-color: transparent;
+}
+
+.nav-tabs .nav-link:disabled {
+    color: #dee2e6;
+    cursor: not-allowed;
+}
+
+/* 文件选择区域 */
+.file-select-container {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 0;
+    max-height: 95vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+.path-bar {
+    background-color: #e9ecef;
+    padding: 10px 15px;
+    border-radius: 4px 4px 0 0;
+    margin-bottom: 0;
+    font-weight: 500;
+    flex-shrink: 0;
+}
+
+.file-actions {
+    padding: 15px;
+    margin-bottom: 0;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e9ecef;
+    flex-shrink: 0;
+}
+
+.file-actions .btn {
+    margin-right: 10px;
+}
+
+/* 文件列表 */
+.file-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    flex-grow: 1;
+    max-height: calc(90vh - 100px);
+}
+
+.file-list-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+    border-bottom: 1px solid #e9ecef;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.file-list-item:hover {
+    background-color: #e9ecef;
+}
+
+.file-list-item .checkbox {
+    margin-right: 10px;
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.file-list-item .icon {
+    margin-right: 10px;
+    font-size: 18px;
+}
+
+.file-list-item .filename {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-list-item .filesize {
+    color: #6c757d;
+    font-size: 14px;
+    margin-left: 10px;
+}
+
+/* 已选择文件列表 */
+.selected-files-container {
+    background-color: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+    max-height: 90vh;
+    overflow-y: auto;
+}
+
+.selected-files-container h3 {
+    margin-bottom: 20px;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.selected-files-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.selected-file-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 15px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    margin-bottom: 10px;
+}
+
+.selected-file-item .filename {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.selected-file-item .remove-btn {
+    margin-left: 10px;
+    background: none;
+    border: none;
+    color: #dc3545;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.no-selection {
+    color: #6c757d;
+    text-align: center;
+    padding: 20px;
+    font-style: italic;
+}
+
+/* 压缩和转换配置区域 */
+.compress-container,
+.convert-container {
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.card {
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+}
+
+.card-header {
+    background-color: #007bff;
+    color: #fff;
+    font-weight: 600;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-control-range {
+    margin-bottom: 10px;
+}
+
+/* 进度显示 */
+.progress-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+    color: #fff;
+}
+
+.progress-content {
+    background-color: #343a40;
+    padding: 30px;
+    border-radius: 8px;
+    text-align: center;
+    max-width: 800px;
+    width: 90%;
+}
+
+.progress-content h2 {
+    margin-bottom: 20px;
+    font-size: 24px;
+}
+
+.progress-info {
+    margin-bottom: 20px;
+}
+
+.progress-info p {
+    margin: 10px 0;
+    font-size: 18px;
+}
+
+.progress {
+    margin-top: 20px;
+    height: 20px;
+    position: relative;
+}
+
+.progress-percentage {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #fff;
+    font-size: 0.8em;
+    font-weight: bold;
+    text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
+    z-index: 100;
+}
+
+/* 当前正在处理的文件路径样式 */
+.current-file-path {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: normal;
+    vertical-align: top;
+    font-family: monospace;
+    background: rgba(255, 255, 255, 0.1);
+    padding: 5px 8px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    color: #fff;
+    word-break: break-all;
+    hyphens: auto;
+    margin-top: 5px;
+    text-align: left;
+}
+
+#statistics {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #495057;
+}
+
+#statistics h3 {
+    margin-bottom: 20px;
+    font-size: 20px;
+}
+
+/* 加载动画 */
+.loading {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(255, 255, 255, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+}
+
+.loading-content {
+    text-align: center;
+}
+
+.loading-content .spinner-border {
+    width: 5rem;
+    height: 5rem;
+    margin-bottom: 20px;
+}
+
+/* 图片预览模态框 */
+#image-info {
+    background-color: #f8f9fa;
+    padding: 15px;
+    border-radius: 4px;
+}
+
+#image-info p {
+    margin: 5px 0;
+    font-size: 14px;
+}
+
+/* 统计结果 */
+.statistics-result {
+    background-color: #d4edda;
+    color: #155724;
+    padding: 15px;
+    border-radius: 4px;
+    margin-top: 20px;
+}
+
+.statistics-result h3 {
+    margin-bottom: 15px;
+    font-size: 18px;
+}
+
+.statistics-result .format-item {
+    margin: 5px 0;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .main-container {
+        margin: 10px;
+        padding: 10px;
+    }
+    
+    .file-select-container,
+    .selected-files-container {
+        height: 400px;
+    }
+    
+    .compress-container,
+    .convert-container {
+        padding: 10px;
+    }
+}

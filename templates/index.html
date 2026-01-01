@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片处理工具</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.4/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <script src="/static/js/main.js"></script>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- 进度显示 -->
+        <div id="progress-overlay" class="progress-overlay" style="display: none;">
+            <div class="progress-content">
+                <h2>处理进度</h2>
+                <div class="progress-info">
+                    <p>总文件数: <span id="total-files">0</span></p>
+                    <p>已处理: <span id="processed-files">0</span></p>
+                    <p>当前处理: <span id="current-file" class="current-file-path"></span></p>
+                    <div class="progress">
+                        <div id="progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                            <span id="progress-percentage" class="progress-percentage">0.0%</span>
+                        </div>
+                    </div>
+                </div>
+                <div id="statistics" style="display: none;">
+                    <h3>处理统计</h3>
+                    <p>总耗时: <span id="total-time">0</span> 秒</p>
+                    <p>原始大小: <span id="original-size">0</span> MB</p>
+                    <p>处理后大小: <span id="final-size">0</span> MB</p>
+                    <p>压缩率: <span id="compression-rate">0</span>%</p>
+                </div>
+                <button id="close-progress" class="btn btn-primary" style="display: none;">关闭</button>
+            </div>
+        </div>
+
+        <!-- 主容器 -->
+        <div class="main-container">
+            <!-- 文件选择区域 -->
+            <div class="row">
+                <!-- 左侧文件列表 -->
+                <div class="col-md-8">
+                    <div class="file-select-container">
+                        <div class="path-bar">
+                            <span id="current-path">/data</span>
+                        </div>
+                        <div class="file-actions">
+                            <button id="back-btn" class="btn btn-secondary">返回上级</button>
+                            <button id="select-all-btn" class="btn btn-secondary">全选</button>
+                            <button id="deselect-all-btn" class="btn btn-secondary">取消全选</button>
+                            <button id="count-formats-btn" class="btn btn-info">统计文件格式</button>
+                            <button id="fix-extensions-btn" class="btn btn-warning">修复文件后缀</button>
+                            <button id="compress-btn" class="btn btn-primary" disabled>图片压缩</button>
+                            <button id="convert-btn" class="btn btn-primary" disabled>图片转换</button>
+                        </div>
+                        <div id="file-list" class="file-list">
+                            <!-- 文件列表将通过JS动态生成 -->
+                        </div>
+                    </div>
+                </div>
+                <!-- 右侧已选择文件列表 -->
+                <div class="col-md-4">
+                    <div class="selected-files-container">
+                        <h3>已选择文件（夹）</h3>
+                        <div id="selected-files-list" class="selected-files-list">
+                            <p class="no-selection">未选择任何文件</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图片压缩模态框 -->
+        <div class="modal fade" id="compress-modal" tabindex="-1" role="dialog" aria-labelledby="compress-modal-title" aria-hidden="true">
+            <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="compress-modal-title">图片压缩配置</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="compress-container">
+                            <div class="card">
+                                <div class="card-body">
+                                    <div class="form-group">
+                                        <label for="compression-quality">压缩率（%）</label>
+                                        <input type="range" class="form-control-range" id="compression-quality" min="1" max="100" value="80">
+                                        <span id="quality-value">80</span>%
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="min-file-size">最小文件大小（KB）</label>
+                                        <input type="number" class="form-control" id="min-file-size" value="2048" min="0">
+                                        <small class="form-text text-muted">小于此大小的文件将被跳过</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="thread-count">线程数</label>
+                                        <input type="range" class="form-control-range" id="thread-count" min="1" max="8" value="4">
+                                        <span id="thread-value">4</span>
+                                    </div>
+                                    <button id="start-compress-btn" class="btn btn-primary">开始压缩</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 图片转换模态框 -->
+    <div class="modal fade" id="convert-modal" tabindex="-1" role="dialog" aria-labelledby="convert-modal-title" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="convert-modal-title">图片转换配置</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="convert-container">
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label for="target-format">目标格式</label>
+                                    <select class="form-control" id="target-format">
+                                        <!-- 动态生成支持的格式选项 -->
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="convert-quality">压缩率（%）</label>
+                                    <input type="range" class="form-control-range" id="convert-quality" min="1" max="100" value="99">
+                                    <span id="convert-quality-value">99</span>%
+                                </div>
+                                <div class="form-group">
+                                    <label for="convert-thread-count">线程数</label>
+                                    <input type="range" class="form-control-range" id="convert-thread-count" min="1" max="8" value="4">
+                                    <span id="convert-thread-value">4</span>
+                                </div>
+                                <button id="start-convert-btn" class="btn btn-primary">开始转换</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 统计结果模态框 -->
+    <div class="modal fade" id="statistics-modal" tabindex="-1" role="dialog" aria-labelledby="statistics-modal-title" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="statistics-modal-title">文件格式统计</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div id="statistics-result" class="statistics-result">
+                        <!-- 统计结果将通过JS动态生成 -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <!-- 图片预览模态框 -->
+    <div class="modal fade" id="image-preview-modal" tabindex="-1" role="dialog" aria-labelledby="image-preview-title" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="image-preview-title">图片预览</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <img id="preview-image" src="" class="img-fluid" alt="Preview">
+                    <div id="image-info" class="mt-3"></div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载动画 -->
+    <div id="loading" class="loading" style="display: none;">
+        <div class="loading-content">
+            <div class="spinner-border text-primary" role="status">
+                <span class="sr-only">Loading...</span>
+            </div>
+            <p>正在处理，请稍候...</p>
+        </div>
+    </div>
+</body>
+</html>
