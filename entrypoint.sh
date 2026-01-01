@@ -3,6 +3,7 @@
 # 设置默认值
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}
+UMASK=${UMASK:-022}
 
 # 显示当前PUID和PGID
 echo "Current PUID: $PUID, PGID: $PGID"
@@ -30,5 +31,5 @@ chown -R $PUID:$PGID /data
 chown -R $PUID:$PGID /app
 
 # 使用appuser用户运行应用程序
-echo "Running application as appuser ($PUID:$PGID)"
-exec gosu $PUID:$PGID python3 app.py
+echo "Running application as appuser ($PUID:$PGID), UMASK: $UMASK"
+exec gosu $PUID:$PGID bash -c "umask $UMASK && python3 app.py"

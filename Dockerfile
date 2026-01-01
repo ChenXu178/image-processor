@@ -42,6 +42,7 @@ ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 ENV PUID=1000
 ENV PGID=1000
+ENV UMASK=022
 
 # 使用entrypoint脚本
 ENTRYPOINT ["entrypoint.sh"]
