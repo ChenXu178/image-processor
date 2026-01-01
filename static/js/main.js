@@ -531,6 +531,150 @@ function bindFileListEvents() {
             // 更新按钮状态
             updateButtons();
     });
+    
+    // 鼠标悬停预览
+    let hoverTimeout = null;
+    
+    // 鼠标进入事件
+    $('.file-list-item').on('mouseenter', function(e) {
+        const path = $(this).data('path');
+        const type = $(this).data('type');
+        
+        // 保存当前鼠标位置
+        const mouseX = e.pageX;
+        const mouseY = e.pageY;
+        
+        // 只有文件类型且不是PDF才触发预览
+        if (type === 'file') {
+            const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\') + 1));
+            const ext = filename.toLowerCase().split('.').pop();
+            
+            // 检查是否是PDF文件
+            if (ext === 'pdf') {
+                return; // PDF文件不进行预览
+            }
+            
+            // 1秒后显示预览，传递鼠标位置
+            hoverTimeout = setTimeout(function() {
+                showHoverPreview(path, mouseX, mouseY);
+            }, 1000);
+        }
+    });
+    
+    // 鼠标离开事件
+    $('.file-list-item').on('mouseleave', function() {
+        // 清除延迟预览
+        if (hoverTimeout) {
+            clearTimeout(hoverTimeout);
+            hoverTimeout = null;
+        }
+        
+        // 隐藏预览
+        hideHoverPreview();
+    });
+}
+
+// 显示悬停预览
+function showHoverPreview(path, mouseX, mouseY) {
+    // 检查是否是PDF文件
+    const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\') + 1));
+    const ext = filename.toLowerCase().split('.').pop();
+    
+    if (ext === 'pdf') {
+        return; // PDF文件不进行预览
+    }
+    
+    // 获取预览URL
+    let previewUrl = '';
+    if (ext === 'tiff' || ext === 'tif') {
+        // TIFF格式需要转换
+        previewUrl = '/convert_tiff_preview?path=' + encodeURIComponent(path);
+    } else {
+        // 其他图片格式，构建预览URL
+        let previewPath = path;
+        // 替换Windows路径分隔符为Unix风格
+        previewPath = previewPath.replace(/\\/g, '/');
+        // 移除base_dir前缀（如果存在）
+        if (baseDir && previewPath.startsWith(baseDir)) {
+            previewPath = previewPath.substring(baseDir.length);
+            // 如果预览路径以/开头，移除它，因为路由已经包含了/preview/
+            if (previewPath.startsWith('/')) {
+                previewPath = previewPath.substring(1);
+            }
+        }
+        // 确保预览URL格式正确
+        previewUrl = '/preview/' + encodeURIComponent(previewPath);
+    }
+    
+    // 计算预览框位置
+    const previewWidth = $('#hover-preview').outerWidth();
+    const previewHeight = $('#hover-preview').outerHeight();
+    const winWidth = $(window).width();
+    const winHeight = $(window).height();
+    
+    // 计算预览位置，避免超出窗口
+    let left = mouseX + 10;
+    let top = mouseY + 10;
+    
+    if (left + previewWidth > winWidth) {
+        left = mouseX - previewWidth - 10;
+    }
+    if (top + previewHeight > winHeight) {
+        top = mouseY - previewHeight - 10;
+    }
+    
+    // 设置初始位置（但保持隐藏）
+    $('#hover-preview').css({
+        left: left + 'px',
+        top: top + 'px',
+        display: 'none' // 先隐藏，等图片加载完成后再显示
+    });
+    
+    // 清空预览图片
+    $('#hover-preview-image').attr('src', '');
+    
+    // 创建新的图片元素，避免直接替换src导致的闪烁
+    const img = new Image();
+    img.onload = function() {
+        // 图片加载完成后，设置图片并显示预览框
+        $('#hover-preview-image').attr('src', this.src);
+        // 显示预览框
+        $('#hover-preview').show();
+    };
+    img.onerror = function() {
+        // 图片加载失败，不显示预览框
+        log('error', '预览图片加载失败: ' + previewUrl);
+    };
+    img.src = previewUrl;
+    
+    // 绑定鼠标移动事件，更新预览框位置
+    $(document).on('mousemove.hoverPreview', function(e) {
+        // 重新计算预览位置
+        let left = e.pageX + 10;
+        let top = e.pageY + 10;
+        
+        if (left + previewWidth > winWidth) {
+            left = e.pageX - previewWidth - 10;
+        }
+        if (top + previewHeight > winHeight) {
+            top = e.pageY - previewHeight - 10;
+        }
+        
+        // 更新预览位置
+        $('#hover-preview').css({
+            left: left + 'px',
+            top: top + 'px'
+        });
+    });
+}
+
+// 隐藏悬停预览
+function hideHoverPreview() {
+    // 移除鼠标移动事件监听
+    $(document).off('mousemove.hoverPreview');
+    
+    // 隐藏预览
+    $('#hover-preview').hide();
 }
 
 // 更新已选择文件列表
