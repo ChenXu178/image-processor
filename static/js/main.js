@@ -31,6 +31,8 @@ let progressInterval = null;
 let isProcessing = false;
 // 是否正在发送停止请求
 let isStopping = false;
+// 模态框预览是否正在加载
+let isModalPreviewLoading = false;
 
 $(document).ready(function() {
     // 加载配置信息
@@ -607,7 +609,9 @@ function bindFileListEvents() {
         
         // 只有文件类型且不是PDF才触发预览
         if (type === 'file') {
-            const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\') + 1));
+            // 正确提取文件名，处理Linux和Windows路径
+            const lastSlashIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+            const filename = lastSlashIndex === -1 ? path : path.substring(lastSlashIndex + 1);
             const ext = filename.toLowerCase().split('.').pop();
             
             // 检查是否是PDF文件
@@ -644,6 +648,11 @@ function showHoverPreview(path, mouseX, mouseY) {
     
     // 如果正在进行图片处理，不显示悬浮预览
     if (isProcessing) {
+        return;
+    }
+    
+    // 如果模态框预览正在加载，不显示悬浮预览
+    if (isModalPreviewLoading) {
         return;
     }
     
@@ -824,6 +833,12 @@ let isModalPreviewOpen = false;
 
 // 预览图片
 function previewImage(path) {
+    // 设置模态框预览加载标志，防止悬浮预览冲突
+    isModalPreviewLoading = true;
+    
+    // 关闭当前可能显示的悬浮预览
+    hideHoverPreview();
+    
     // 检查文件扩展名
     const ext = path.split('.').pop().toLowerCase();
     
@@ -837,6 +852,8 @@ function previewImage(path) {
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        // 清除加载标志
+        isModalPreviewLoading = false;
         return;
     }
     
@@ -871,19 +888,20 @@ function previewImage(path) {
             
             // 显示图片信息
             let infoHtml = '';
-            const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\') + 1));
+            // 正确提取文件名，处理Linux和Windows路径
+            const lastSlashIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+            const filename = lastSlashIndex === -1 ? path : path.substring(lastSlashIndex + 1);
             infoHtml += '<p><strong>文件名:</strong> ' + filename + '</p>';
             infoHtml += '<p><strong>尺寸:</strong> ' + response.width + ' × ' + response.height + ' 像素</p>';
             infoHtml += '<p><strong>格式:</strong> ' + response.format + '</p>';
             infoHtml += '<p><strong>大小:</strong> ' + formatFileSize(response.size) + '</p>';
             
-            // 添加EXIF信息显示/隐藏按钮
-            infoHtml += '<div class="mt-3">';
-            infoHtml += '<button id="toggle-exif-btn" class="btn btn-sm btn-outline-secondary" style="margin-bottom: 10px;">显示EXIF信息</button>';
-            infoHtml += '<div id="exif-info-container" style="display: none;">';
-            
             // 显示EXIF信息（如果有）
+            infoHtml += '<div class="mt-3">';
             if (response.exif && Object.keys(response.exif).length > 0) {
+                // 有EXIF信息时，添加显示/隐藏按钮和EXIF信息容器
+                infoHtml += '<button id="toggle-exif-btn" class="btn btn-sm btn-outline-secondary" style="margin-bottom: 10px;">显示EXIF信息</button>';
+                infoHtml += '<div id="exif-info-container" style="display: none;">';
                 infoHtml += '<h5 style="margin-top: 15px; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px;">EXIF信息</h5>';
                 infoHtml += '<div class="exif-info" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 14px;">';
                 
@@ -900,26 +918,25 @@ function previewImage(path) {
                 }
                 
                 infoHtml += '</div>';
-            } else {
-                infoHtml += '<p style="color: #6c757d;">该图片没有EXIF信息</p>';
+                infoHtml += '</div>'; // 关闭exif-info-container
             }
-            
-            infoHtml += '</div>'; // 关闭exif-info-container
             infoHtml += '</div>'; // 关闭外层div
             
             $('#image-info').html(infoHtml);
             
-            // 绑定EXIF信息显示/隐藏按钮事件
-            $('#toggle-exif-btn').on('click', function() {
-                const exifContainer = $('#exif-info-container');
-                if (exifContainer.is(':hidden')) {
-                    exifContainer.show();
-                    $(this).text('隐藏EXIF信息');
-                } else {
-                    exifContainer.hide();
-                    $(this).text('显示EXIF信息');
-                }
-            });
+            // 绑定EXIF信息显示/隐藏按钮事件（只有当按钮存在时才绑定）
+            if (response.exif && Object.keys(response.exif).length > 0) {
+                $('#toggle-exif-btn').on('click', function() {
+                    const exifContainer = $('#exif-info-container');
+                    if (exifContainer.is(':hidden')) {
+                        exifContainer.show();
+                        $(this).text('隐藏EXIF信息');
+                    } else {
+                        exifContainer.hide();
+                        $(this).text('显示EXIF信息');
+                    }
+                });
+            }
             
             // 关闭悬浮预览
             hideHoverPreview();
@@ -934,9 +951,14 @@ function previewImage(path) {
             $('#image-preview-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
                 isModalPreviewOpen = false;
             });
+            
+            // 清除加载标志
+            isModalPreviewLoading = false;
         },
         error: function(xhr, status, error) {
             alert('预览图片失败: ' + error);
+            // 清除加载标志
+            isModalPreviewLoading = false;
         }
     });
 }
