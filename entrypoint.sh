@@ -74,7 +74,6 @@ fi
 mkdir -p /data
 # 获取APP_GROUP的实际GID
 ACTUAL_GID=$(getent group $APP_GROUP | cut -d: -f3)
-chown -R $PUID:$ACTUAL_GID /data
 chown -R $PUID:$ACTUAL_GID /app
 
 # 使用正确的用户和组运行应用程序
