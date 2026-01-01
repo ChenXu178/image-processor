@@ -631,74 +631,10 @@ def preview_image():
                     from PIL.ExifTags import TAGS
                     from fractions import Fraction
                     
-                    # EXIF字段名中英文映射字典
-                    exif_field_map = {
-                        # 基本信息
-                        'Make': '制造商',
-                        'Model': '设备型号',
-                        'Software': '软件版本',
-                        'DateTime': '拍摄时间',
-                        'DateTimeOriginal': '原始拍摄时间',
-                        'DateTimeDigitized': '数字化时间',
-                        
-                        # 拍摄参数
-                        'ExposureTime': '曝光时间',
-                        'FNumber': '光圈值',
-                        'ISOSpeedRatings': 'ISO',
-                        'FocalLength': '焦距',
-                        'FocalLengthIn35mmFilm': '等效35mm焦距',
-                        'ExposureProgram': '曝光程序',
-                        'ExposureBiasValue': '曝光补偿',
-                        'ExposureMode': '曝光模式',
-                        'MeteringMode': '测光模式',
-                        'Flash': '闪光灯',
-                        'WhiteBalance': '白平衡',
-                        'ShutterSpeedValue': '快门速度',
-                        'ApertureValue': '光圈值',
-                        'BrightnessValue': '亮度值',
-                        
-                        # 图片信息
-                        'ImageWidth': '图像宽度',
-                        'ImageHeight': '图像高度',
-                        'ExifImageWidth': 'EXIF图像宽度',
-                        'ExifImageHeight': 'EXIF图像高度',
-                        'Orientation': '方向',
-                        'ResolutionUnit': '分辨率单位',
-                        'XResolution': '水平分辨率',
-                        'YResolution': '垂直分辨率',
-                        'ColorSpace': '色彩空间',
-                        'YCbCrPositioning': 'YCbCr定位',
-                        'SensingMethod': '感应方式',
-                        'SceneCaptureType': '场景类型',
-                        'SceneType': '场景',
-                        'SubjectLocation': '主体位置',
-                        
-                        # 镜头信息
-                        'LensMake': '镜头制造商',
-                        'LensModel': '镜头型号',
-                        'LensSpecification': '镜头规格',
-                        
-                        # 其他
-                        'OffsetTime': '时间偏移',
-                        'OffsetTimeOriginal': '原始时间偏移',
-                        'OffsetTimeDigitized': '数字化时间偏移',
-                        'SubsecTimeOriginal': '原始拍摄毫秒',
-                        'SubsecTimeDigitized': '数字化毫秒',
-                        
-                        # 新增映射
-                        'ComponentsConfiguration': '组件配置',
-                        'ExifOffset': 'EXIF偏移',
-                        'ExifVersion': 'EXIF版本',
-                        'FlashPixVersion': 'FlashPix版本',
-                        'FlashMode': '闪光灯模式',
-                        'PixelXDimension': '像素宽度',
-                        'PixelYDimension': '像素高度',
-                        'GainControl': '增益控制',
-                        'Contrast': '对比度',
-                        'Saturation': '饱和度',
-                        'Sharpness': '锐度',
-                        'SubjectDistanceRange': '主体距离范围',
-                    }
+                    # 导入EXIF字段名中英文映射字典
+                    from exif_mapping import exif_field_map
+                    # 导入EXIF标签类型和扩展值映射
+                    from optimize_exif_parsing import EXIF_TAG_TYPES, extended_value_mappings
                     
                     # 将EXIF标签ID转换为可读名称
                     for tag, value in exif_data.items():
@@ -745,9 +681,21 @@ def preview_image():
                                     except:
                                         serializable_value = f"0x{value.hex()}"
                                 # 格式化日期时间
-                                elif tag_name in ['DateTime', 'DateTimeOriginal', 'DateTimeDigitized'] and isinstance(value, str):
+                                elif tag_name in ['DateTime', 'DateTimeOriginal', 'DateTimeDigitized', 'GPSDateStamp'] and isinstance(value, str):
                                     try:
-                                        serializable_value = datetime.strptime(value, '%Y:%m:%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
+                                        # 尝试解析不同的日期时间格式
+                                        if ':' in value and ' ' in value:
+                                            # 格式：YYYY:MM:DD HH:MM:SS
+                                            serializable_value = datetime.strptime(value, '%Y:%m:%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
+                                        elif ':' in value and len(value) == 10:
+                                            # 格式：YYYY:MM:DD
+                                            serializable_value = datetime.strptime(value, '%Y:%m:%d').strftime('%Y-%m-%d')
+                                        elif '-' in value and len(value) == 10:
+                                            # 格式：YYYY-MM-DD
+                                            serializable_value = datetime.strptime(value, '%Y-%m-%d').strftime('%Y-%m-%d')
+                                        elif ' ' not in value and len(value) == 8:
+                                            # 格式：YYYYMMDD
+                                            serializable_value = datetime.strptime(value, '%Y%m%d').strftime('%Y-%m-%d')
                                     except:
                                         pass
                                 
@@ -759,10 +707,6 @@ def preview_image():
                                             serializable_value = f"1/{int(round(1/serializable_value))}秒"
                                         except:
                                             pass
-                                elif tag_name == 'ResolutionUnit':
-                                    # 分辨率单位：1=无单位，2=英寸，3=厘米
-                                    unit_map = {1: '无单位', 2: '英寸', 3: '厘米'}
-                                    serializable_value = unit_map.get(serializable_value, serializable_value)
                                 elif tag_name == 'Orientation':
                                     # 方向：1=正常，2=水平翻转，3=旋转180，4=垂直翻转，5=顺时针旋转90+水平翻转，6=顺时针旋转90，7=顺时针旋转90+垂直翻转，8=逆时针旋转90
                                     orientation_map = {
@@ -771,51 +715,20 @@ def preview_image():
                                         7: '顺时针旋转90°+垂直翻转', 8: '逆时针旋转90°'
                                     }
                                     serializable_value = orientation_map.get(serializable_value, serializable_value)
-                                elif tag_name == 'SceneCaptureType':
-                                    # 场景类型：0=标准，1=风景，2=肖像，3=夜景
-                                    scene_map = {0: '标准', 1: '风景', 2: '肖像', 3: '夜景'}
-                                    serializable_value = scene_map.get(serializable_value, serializable_value)
-                                elif tag_name == 'SensingMethod':
-                                    # 感应方式：1=未知，2=逐行扫描，3=隔行扫描，4=单芯片彩色区域传感器
-                                    sensing_map = {1: '未知', 2: '逐行扫描', 3: '隔行扫描', 4: '单芯片彩色区域传感器'}
-                                    serializable_value = sensing_map.get(serializable_value, serializable_value)
-                                elif tag_name == 'ExposureProgram':
-                                    # 曝光程序：1=手动，2=正常程序，3=光圈优先，4=快门优先，5=创意程序，6=动作程序，7=肖像模式，8=风景模式
-                                    exposure_map = {
-                                        1: '手动', 2: '正常程序', 3: '光圈优先', 4: '快门优先',
-                                        5: '创意程序', 6: '动作程序', 7: '肖像模式', 8: '风景模式'
-                                    }
-                                    serializable_value = exposure_map.get(serializable_value, serializable_value)
-                                elif tag_name == 'ExposureMode':
-                                    # 曝光模式：0=自动曝光，1=手动曝光，2=自动包围曝光
-                                    exposure_mode_map = {0: '自动曝光', 1: '手动曝光', 2: '自动包围曝光'}
-                                    serializable_value = exposure_mode_map.get(serializable_value, serializable_value)
-                                elif tag_name == 'MeteringMode':
-                                    # 测光模式：0=未知，1=平均，2=中央重点平均，3=点测光，4=多点测光，5=评估测光
-                                    metering_map = {
-                                        0: '未知', 1: '平均', 2: '中央重点平均', 3: '点测光',
-                                        4: '多点测光', 5: '评估测光'
-                                    }
-                                    serializable_value = metering_map.get(serializable_value, serializable_value)
-                                elif tag_name == 'Flash':
-                                    # 闪光灯：0=未使用，1=使用，5=关闭，9=打开，13=红眼关闭，17=红眼打开
-                                    flash_map = {
-                                        0: '未使用', 1: '使用', 5: '关闭', 9: '打开',
-                                        13: '红眼关闭', 17: '红眼打开', 24: '自动但未使用', 25: '自动且使用',
-                                        29: '自动且关闭', 33: '自动且打开', 37: '自动且红眼关闭', 41: '自动且红眼打开'
-                                    }
-                                    serializable_value = flash_map.get(serializable_value, serializable_value)
-                                elif tag_name == 'WhiteBalance':
-                                    # 白平衡：0=自动，1=手动
-                                    wb_map = {0: '自动', 1: '手动'}
-                                    serializable_value = wb_map.get(serializable_value, serializable_value)
+                                # 使用扩展的标签值映射优化其他字段
+                                elif tag_name in extended_value_mappings:
+                                    mapping = extended_value_mappings[tag_name]
+                                    if isinstance(serializable_value, (int, float)):
+                                        serializable_value = mapping.get(int(serializable_value), serializable_value)
+                                    else:
+                                        serializable_value = mapping.get(serializable_value, serializable_value)
                                 
                                 # 只添加非空值
                                 if serializable_value is not None:
                                     # 使用中文字段名，如果没有映射则使用原字段名
                                     chinese_tag_name = exif_field_map.get(tag_name, tag_name)
                                     exif[chinese_tag_name] = serializable_value
-            
+                    
         size = get_file_size(path)
         logger.info(f"成功获取图片信息: {width}x{height}, {format}, {size} bytes, EXIF字段: {len(exif)}")
         
