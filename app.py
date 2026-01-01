@@ -365,7 +365,7 @@ def preview_image():
     # 验证图片文件
     if not path or not os.path.isfile(path) or not is_image_file(path):
         logger.warning(f"无效的图片文件: {path}")
-        return jsonify({'error': '无效的图片文件: {path}'}), 400
+        return jsonify({'error': f'无效的图片文件: {path}'}), 400
     
     # 获取文件扩展名
     ext = os.path.splitext(path)[1].lower()[1:]
@@ -392,19 +392,209 @@ def preview_image():
         with Image.open(path) as img:
             width, height = img.size
             format = img.format
+            
+            # 获取EXIF信息
+            exif = {}
+            if hasattr(img, '_getexif'):
+                exif_data = img._getexif()
+                if exif_data:
+                    from PIL.ExifTags import TAGS
+                    from fractions import Fraction
+                    
+                    # EXIF字段名中英文映射字典
+                    exif_field_map = {
+                        # 基本信息
+                        'Make': '制造商',
+                        'Model': '设备型号',
+                        'Software': '软件版本',
+                        'DateTime': '拍摄时间',
+                        'DateTimeOriginal': '原始拍摄时间',
+                        'DateTimeDigitized': '数字化时间',
+                        
+                        # 拍摄参数
+                        'ExposureTime': '曝光时间',
+                        'FNumber': '光圈值',
+                        'ISOSpeedRatings': 'ISO',
+                        'FocalLength': '焦距',
+                        'FocalLengthIn35mmFilm': '等效35mm焦距',
+                        'ExposureProgram': '曝光程序',
+                        'ExposureBiasValue': '曝光补偿',
+                        'ExposureMode': '曝光模式',
+                        'MeteringMode': '测光模式',
+                        'Flash': '闪光灯',
+                        'WhiteBalance': '白平衡',
+                        'ShutterSpeedValue': '快门速度',
+                        'ApertureValue': '光圈值',
+                        'BrightnessValue': '亮度值',
+                        
+                        # 图片信息
+                        'ImageWidth': '图像宽度',
+                        'ImageHeight': '图像高度',
+                        'ExifImageWidth': 'EXIF图像宽度',
+                        'ExifImageHeight': 'EXIF图像高度',
+                        'Orientation': '方向',
+                        'ResolutionUnit': '分辨率单位',
+                        'XResolution': '水平分辨率',
+                        'YResolution': '垂直分辨率',
+                        'ColorSpace': '色彩空间',
+                        'YCbCrPositioning': 'YCbCr定位',
+                        'SensingMethod': '感应方式',
+                        'SceneCaptureType': '场景类型',
+                        'SceneType': '场景',
+                        'SubjectLocation': '主体位置',
+                        
+                        # 镜头信息
+                        'LensMake': '镜头制造商',
+                        'LensModel': '镜头型号',
+                        'LensSpecification': '镜头规格',
+                        
+                        # 其他
+                        'OffsetTime': '时间偏移',
+                        'OffsetTimeOriginal': '原始时间偏移',
+                        'OffsetTimeDigitized': '数字化时间偏移',
+                        'SubsecTimeOriginal': '原始拍摄毫秒',
+                        'SubsecTimeDigitized': '数字化毫秒',
+                        
+                        # 新增映射
+                        'ComponentsConfiguration': '组件配置',
+                        'ExifOffset': 'EXIF偏移',
+                        'ExifVersion': 'EXIF版本',
+                        'FlashPixVersion': 'FlashPix版本',
+                        'FlashMode': '闪光灯模式',
+                        'PixelXDimension': '像素宽度',
+                        'PixelYDimension': '像素高度',
+                        'GainControl': '增益控制',
+                        'Contrast': '对比度',
+                        'Saturation': '饱和度',
+                        'Sharpness': '锐度',
+                        'SubjectDistanceRange': '主体距离范围',
+                    }
+                    
+                    # 将EXIF标签ID转换为可读名称
+                    for tag, value in exif_data.items():
+                        tag_name = TAGS.get(tag, tag)
+                        # 过滤掉不需要显示的EXIF字段
+                        if tag_name not in ['JPEGThumbnail', 'MakerNote', 'GPSInfo']:
+                            # 转换不可序列化的类型
+                            serializable_value = value
+                            
+                            # 处理PIL的IFDRational和Fraction类型
+                            if hasattr(value, 'numerator') and hasattr(value, 'denominator'):
+                                # 转换为浮点数
+                                try:
+                                    serializable_value = float(value)
+                                except:
+                                    serializable_value = f"{value.numerator}/{value.denominator}"
+                            # 处理元组类型
+                            elif isinstance(value, tuple):
+                                # 转换为列表
+                                serializable_value = list(value)
+                                # 递归转换列表中的元素
+                                for i, v in enumerate(serializable_value):
+                                    if hasattr(v, 'numerator') and hasattr(v, 'denominator'):
+                                        try:
+                                            serializable_value[i] = float(v)
+                                        except:
+                                            serializable_value[i] = f"{v.numerator}/{v.denominator}"
+                            # 处理字节类型
+                            elif isinstance(value, bytes):
+                                # 尝试将字节转换为可读格式
+                                try:
+                                    # 过滤掉不可打印的字符
+                                    filtered_bytes = bytes([b for b in value if 32 <= b <= 126])
+                                    if filtered_bytes:
+                                        serializable_value = filtered_bytes.decode('utf-8', errors='replace')
+                                    else:
+                                        # 显示为十六进制
+                                        serializable_value = f"0x{value.hex()}"
+                                except:
+                                    serializable_value = f"0x{value.hex()}"
+                            # 格式化日期时间
+                            elif tag_name in ['DateTime', 'DateTimeOriginal', 'DateTimeDigitized'] and isinstance(value, str):
+                                try:
+                                    serializable_value = datetime.strptime(value, '%Y:%m:%d %H:%M:%S').strftime('%Y-%m-%d %H:%M:%S')
+                                except:
+                                    pass
+                            
+                            # 优化特定字段的显示
+                            if tag_name in ['ExposureTime', 'ExposureBiasValue']:
+                                # 优化曝光时间显示，转换为1/xxx秒格式
+                                if isinstance(serializable_value, float) and serializable_value > 0 and serializable_value < 1:
+                                    try:
+                                        serializable_value = f"1/{int(round(1/serializable_value))}秒"
+                                    except:
+                                        pass
+                            elif tag_name == 'ResolutionUnit':
+                                # 分辨率单位：1=无单位，2=英寸，3=厘米
+                                unit_map = {1: '无单位', 2: '英寸', 3: '厘米'}
+                                serializable_value = unit_map.get(serializable_value, serializable_value)
+                            elif tag_name == 'Orientation':
+                                # 方向：1=正常，2=水平翻转，3=旋转180，4=垂直翻转，5=顺时针旋转90+水平翻转，6=顺时针旋转90，7=顺时针旋转90+垂直翻转，8=逆时针旋转90
+                                orientation_map = {
+                                    1: '正常', 2: '水平翻转', 3: '旋转180°', 4: '垂直翻转',
+                                    5: '顺时针旋转90°+水平翻转', 6: '顺时针旋转90°',
+                                    7: '顺时针旋转90°+垂直翻转', 8: '逆时针旋转90°'
+                                }
+                                serializable_value = orientation_map.get(serializable_value, serializable_value)
+                            elif tag_name == 'SceneCaptureType':
+                                # 场景类型：0=标准，1=风景，2=肖像，3=夜景
+                                scene_map = {0: '标准', 1: '风景', 2: '肖像', 3: '夜景'}
+                                serializable_value = scene_map.get(serializable_value, serializable_value)
+                            elif tag_name == 'SensingMethod':
+                                # 感应方式：1=未知，2=逐行扫描，3=隔行扫描，4=单芯片彩色区域传感器
+                                sensing_map = {1: '未知', 2: '逐行扫描', 3: '隔行扫描', 4: '单芯片彩色区域传感器'}
+                                serializable_value = sensing_map.get(serializable_value, serializable_value)
+                            elif tag_name == 'ExposureProgram':
+                                # 曝光程序：1=手动，2=正常程序，3=光圈优先，4=快门优先，5=创意程序，6=动作程序，7=肖像模式，8=风景模式
+                                exposure_map = {
+                                    1: '手动', 2: '正常程序', 3: '光圈优先', 4: '快门优先',
+                                    5: '创意程序', 6: '动作程序', 7: '肖像模式', 8: '风景模式'
+                                }
+                                serializable_value = exposure_map.get(serializable_value, serializable_value)
+                            elif tag_name == 'ExposureMode':
+                                # 曝光模式：0=自动曝光，1=手动曝光，2=自动包围曝光
+                                exposure_mode_map = {0: '自动曝光', 1: '手动曝光', 2: '自动包围曝光'}
+                                serializable_value = exposure_mode_map.get(serializable_value, serializable_value)
+                            elif tag_name == 'MeteringMode':
+                                # 测光模式：0=未知，1=平均，2=中央重点平均，3=点测光，4=多点测光，5=评估测光
+                                metering_map = {
+                                    0: '未知', 1: '平均', 2: '中央重点平均', 3: '点测光',
+                                    4: '多点测光', 5: '评估测光'
+                                }
+                                serializable_value = metering_map.get(serializable_value, serializable_value)
+                            elif tag_name == 'Flash':
+                                # 闪光灯：0=未使用，1=使用，5=关闭，9=打开，13=红眼关闭，17=红眼打开
+                                flash_map = {
+                                    0: '未使用', 1: '使用', 5: '关闭', 9: '打开',
+                                    13: '红眼关闭', 17: '红眼打开', 24: '自动但未使用', 25: '自动且使用',
+                                    29: '自动且关闭', 33: '自动且打开', 37: '自动且红眼关闭', 41: '自动且红眼打开'
+                                }
+                                serializable_value = flash_map.get(serializable_value, serializable_value)
+                            elif tag_name == 'WhiteBalance':
+                                # 白平衡：0=自动，1=手动
+                                wb_map = {0: '自动', 1: '手动'}
+                                serializable_value = wb_map.get(serializable_value, serializable_value)
+                            
+                            # 只添加非空值
+                            if serializable_value is not None:
+                                # 使用中文字段名，如果没有映射则使用原字段名
+                                chinese_tag_name = exif_field_map.get(tag_name, tag_name)
+                                exif[chinese_tag_name] = serializable_value
+            
         size = get_file_size(path)
-        logger.info(f"成功获取图片信息: {width}x{height}, {format}, {size} bytes")
+        logger.info(f"成功获取图片信息: {width}x{height}, {format}, {size} bytes, EXIF字段: {len(exif)}")
         
         return jsonify({
             'path': path,
             'width': width,
             'height': height,
             'format': format,
-            'size': size
+            'size': size,
+            'exif': exif
         })
     except Exception as e:
         logger.error(f"获取图片信息失败: {e}")
-        return jsonify({'error': '获取图片信息失败: {e}'}), 500
+        return jsonify({'error': f'获取图片信息失败: {e}'}), 500
 
 @app.route('/preview/<path:filepath>')
 def preview_file(filepath):
@@ -445,13 +635,56 @@ def preview_file(filepath):
     logger.debug(f"文件大小: {os.path.getsize(full_path)} bytes")
     logger.debug(f"文件类型: {mimetypes.guess_type(full_path)[0]}")
     try:
-        response = send_file(full_path)
-        logger.debug(f"send_file返回成功，响应头: {dict(response.headers)}")
-        return response
+        # 打开图片，检查分辨率
+        with Image.open(full_path) as img:
+            width, height = img.size
+            logger.info(f"图片原始分辨率: {width}x{height}")
+            
+            # 如果图片分辨率超过1920x1080，调整大小
+            if width > 1920 or height > 1080:
+                logger.info(f"图片分辨率超过1920x1080，需要调整大小")
+                
+                # 计算调整后的尺寸，保持原始比例
+                ratio = min(1920/width, 1080/height)
+                new_width = int(width * ratio)
+                new_height = int(height * ratio)
+                logger.info(f"调整后分辨率: {new_width}x{new_height}")
+                
+                # 调整图片大小
+                resized_img = img.resize((new_width, new_height), Image.LANCZOS)
+                
+                # 将调整后的图片保存到内存缓冲区
+                buffer = io.BytesIO()
+                
+                # 根据原图格式选择保存格式
+                if ext in ['png', 'gif']:
+                    # PNG和GIF保持原格式
+                    resized_img.save(buffer, format=ext)
+                else:
+                    # 其他格式保存为JPEG
+                    resized_img.save(buffer, format='JPEG', quality=90)
+                
+                buffer.seek(0)
+                
+                # 返回调整后的图片
+                response = send_file(buffer, mimetype=mimetypes.guess_type(full_path)[0])
+                logger.debug(f"send_file返回成功，响应头: {dict(response.headers)}")
+                return response
+            else:
+                # 图片分辨率符合要求，直接返回原图
+                response = send_file(full_path)
+                logger.debug(f"send_file返回成功，响应头: {dict(response.headers)}")
+                return response
     except Exception as e:
-        logger.error(f"send_file失败: {type(e).__name__}: {str(e)}")
+        logger.error(f"处理图片失败: {type(e).__name__}: {str(e)}")
         logger.error(f"异常详情: {traceback.format_exc()}")
-        return f'Image preview failed: {str(e)}', 500
+        # 尝试直接返回原图，即使处理失败
+        try:
+            response = send_file(full_path)
+            logger.debug(f"send_file返回成功，响应头: {dict(response.headers)}")
+            return response
+        except:
+            return f'Image preview failed: {str(e)}', 500
 
 
 
@@ -613,7 +846,7 @@ def fix_extensions():
                             name_without_ext, ext = os.path.splitext(file)
                             # 标准化扩展名
                             ext_lower = ext.lower()
-                            # 检查是否需要修复：1) 包含大写 2) 是jpeg
+                            # 检查是否需要修复：1) 包含大写 2) 是jpeg 3) 是heic但扩展名是大写
                             needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
                             
                             if needs_fix:
@@ -1050,8 +1283,8 @@ def get_supported_formats():
     """
     返回支持的格式列表，将jpg和jpeg合并为一种格式
     """
-    # 获取所有格式键
-    all_formats = list(SUPPORTED_FORMATS.keys())
+    # 获取所有格式键，并转换为小写，确保大小写不敏感
+    all_formats = [fmt.lower() for fmt in SUPPORTED_FORMATS.keys()]
     
     # 去重处理，将jpg和jpeg视为同一种格式，只保留jpg
     unique_formats = []
