@@ -356,7 +356,14 @@ $(document).ready(function() {
             },
             error: function(xhr, status, error) {
                 $('#progress-overlay').hide();
-                alert('转换失败: ' + error);
+                // 显示友好的错误信息
+                let errorMessage = '转换失败: ';
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMessage += xhr.responseJSON.error;
+                } else {
+                    errorMessage += error;
+                }
+                alert(errorMessage);
             }
         });
     });
@@ -586,21 +593,48 @@ function updateButtons() {
 
 // 预览图片
 function previewImage(path) {
+    // 检查文件扩展名
+    const ext = path.split('.').pop().toLowerCase();
+    
+    // 如果是PDF文件，直接下载而不预览
+    if (ext === 'pdf') {
+        console.log('直接下载PDF文件:', path);
+        // 创建临时链接下载文件
+        const link = document.createElement('a');
+        link.href = '/download?path=' + encodeURIComponent(path);
+        link.download = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        return;
+    }
+    
     // 发送请求获取图片信息
     $.ajax({
         url: '/preview_image',
         type: 'POST',
         data: { path: path },
         success: function(response) {
-            const ext = path.split('.').pop().toLowerCase();
-            
             // 显示图片预览
             if (ext === 'tiff' || ext === 'tif') {
                 // TIFF格式浏览器可能不支持直接显示，转换为PNG显示
                 $('#preview-image').attr('src', '/convert_tiff_preview?path=' + encodeURIComponent(path));
             } else {
-                // 构建预览URL
-                const previewUrl = '/preview/' + encodeURIComponent(path.replace(/\\/g, '/').replace(/^\/data\//, ''));
+                // 其他图片格式，直接构建预览URL
+                let previewPath = path;
+                // 替换Windows路径分隔符为Unix风格
+                previewPath = previewPath.replace(/\\/g, '/');
+                // 移除base_dir前缀（如果存在）
+                if (baseDir && previewPath.startsWith(baseDir)) {
+                    previewPath = previewPath.substring(baseDir.length);
+                    // 如果预览路径以/开头，移除它，因为路由已经包含了/preview/
+                    if (previewPath.startsWith('/')) {
+                        previewPath = previewPath.substring(1);
+                    }
+                }
+                // 确保预览URL格式正确
+                const previewUrl = '/preview/' + encodeURIComponent(previewPath);
+                console.log('图片预览URL:', previewUrl);
                 $('#preview-image').attr('src', previewUrl);
             }
             

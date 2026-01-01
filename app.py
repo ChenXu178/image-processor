@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, session
+from flask import Flask, render_template, request, jsonify, session, send_file
 import os
 import threading
 import time
@@ -7,6 +7,11 @@ from PIL import Image
 import concurrent.futures
 import mimetypes
 import logging
+import subprocess
+import platform
+import io
+import traceback
+from pdf2image import convert_from_path
 
 # 配置日志记录
 from logging.handlers import RotatingFileHandler
@@ -32,9 +37,9 @@ file_handler.setFormatter(formatter)
 stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(formatter)
 
-# 配置根日志记录器
+# 配置根日志记录器，设置为DEBUG级别以便查看详细调试信息
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     handlers=[
         file_handler,
         stream_handler
@@ -61,39 +66,32 @@ except Exception as e:
 # 支持的图片格式
 SUPPORTED_FORMATS = {
     'jpg': 'JPEG',
-    'jpeg': 'JPEG',
+    'jpeg': 'JPEG',  # JPG和JPEG是同一种格式，只是扩展名不同
     'png': 'PNG',
     'webp': 'WEBP',
     'avif': 'AVIF',
     'heic': 'HEIC',
     'bmp': 'BMP',
     'gif': 'GIF',
-    'tiff': 'TIFF'
+    'tiff': 'TIFF',
+    'pdf': 'PDF'  # 添加PDF格式支持
 }
 
-# 检查格式是否支持写入
-def is_format_supported(format_name):
+# 检查ImageMagick是否可用
+def check_imagemagick():
     try:
-        # 尝试创建一个简单的图片并保存为指定格式，测试是否支持
-        test_img = Image.new('RGB', (1, 1))
-        import io
-        buffer = io.BytesIO()
-        test_img.save(buffer, format=SUPPORTED_FORMATS[format_name])
+        cmd = ['magick', '--version'] if platform.system() == 'Windows' else ['convert', '--version']
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        logger.info(f"ImageMagick版本: {result.stdout.split()[2]}")
         return True
-    except Exception:
+    except Exception as e:
+        logger.warning(f"ImageMagick不可用: {e}")
+        logger.warning("程序将继续运行，但图片处理功能将不可用")
         return False
 
-# 初始化时检查并移除不支持的格式
-logger.info("开始检查支持的图片格式")
-unsupported_formats = []
-for ext, format_name in SUPPORTED_FORMATS.items():
-    if not is_format_supported(ext):
-        unsupported_formats.append(ext)
-        
-for ext in unsupported_formats:
-    del SUPPORTED_FORMATS[ext]
-    logger.warning(f"格式 {ext} 不支持，已从支持列表中移除")
-    
+# 检查ImageMagick是否可用
+IMAGEMAGICK_AVAILABLE = check_imagemagick()
+
 logger.info(f"支持的图片格式: {list(SUPPORTED_FORMATS.keys())}")
 
 # 全局进度变量
@@ -115,6 +113,162 @@ def is_image_file(filename):
     # 使用os.path.splitext获取扩展名，更可靠的方法
     ext = os.path.splitext(filename)[1].lower()[1:]  # [1:] 移除点号
     return ext in SUPPORTED_FORMATS
+
+# 使用ImageMagick压缩图片
+def compress_image_with_imagemagick(img_path, quality):
+    """
+    使用ImageMagick压缩图片
+    """
+    try:
+        # 使用更可靠的命令构建方式，确保中文路径被正确处理
+        # 在Linux上，ImageMagick 7+ 也使用 magick 命令，而不是 convert
+        if platform.system() == 'Windows':
+            cmd = [
+                'magick', img_path,
+                '-quality', str(quality),
+                '-strip',  # 移除元数据
+                '-interlace', 'Plane',  # 渐进式JPEG
+                '-sampling-factor', '4:2:0',  # 色度抽样
+                '-colorspace', 'sRGB',  # 确保sRGB色彩空间
+                img_path
+            ]
+        else:
+            # 检查系统上可用的ImageMagick命令
+            try:
+                # 先尝试magick命令（ImageMagick 7+）
+                subprocess.run(['magick', '--version'], capture_output=True, text=True, timeout=5)
+                cmd = [
+                    'magick', img_path,
+                    '-quality', str(quality),
+                    '-strip',  # 移除元数据
+                    '-interlace', 'Plane',  # 渐进式JPEG
+                    '-sampling-factor', '4:2:0',  # 色度抽样
+                    '-colorspace', 'sRGB',  # 确保sRGB色彩空间
+                    img_path
+                ]
+            except:
+                # 回退到convert命令（ImageMagick 6）
+                cmd = [
+                    'convert', img_path,
+                    '-quality', str(quality),
+                    '-strip',  # 移除元数据
+                    '-interlace', 'Plane',  # 渐进式JPEG
+                    '-sampling-factor', '4:2:0',  # 色度抽样
+                    '-colorspace', 'sRGB',  # 确保sRGB色彩空间
+                    img_path
+                ]
+        
+        # 执行命令
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            logger.error(f"压缩图片失败: {img_path}, 错误: {result.stderr}")
+            return False
+        
+        logger.info(f"压缩完成: {img_path}")
+        return True
+    except Exception as e:
+        logger.error(f"压缩图片失败: {img_path}, 错误: {e}")
+        return False
+
+# 使用ImageMagick转换图片格式
+def convert_image_with_imagemagick(img_path, target_format, quality):
+    """
+    使用ImageMagick转换图片格式
+    """
+    try:
+        # 获取文件扩展名
+        ext = os.path.splitext(img_path)[1].lower()[1:]
+        
+        # 生成新文件名
+        dirname = os.path.dirname(img_path)
+        basename = os.path.basename(img_path).split('.')[0]
+        
+        # 如果是PDF文件，需要特殊处理
+        if ext == 'pdf':
+            # PDF文件转图片，支持多页，使用pdf2image库
+            logger.info(f"PDF文件转图片: {img_path}")
+            
+            try:
+                # 使用pdf2image转换PDF为图片列表
+                logger.info(f"开始使用pdf2image转换PDF: {img_path}")
+                images = convert_from_path(img_path, dpi=300, fmt=target_format.lower(), thread_count=1)
+                logger.info(f"PDF转换完成，共 {len(images)} 页")
+                
+                # 处理转换后的图片
+                for i, img in enumerate(images):
+                    # 生成带序号的输出文件名
+                    output_filename = os.path.join(dirname, f"{basename}-{i+1:03d}.{target_format}")
+                    # 检查文件是否已存在
+                    if os.path.exists(output_filename):
+                        logger.info(f"文件已存在，跳过: {output_filename}")
+                        continue
+                    # 保存图片
+                    img.save(output_filename, quality=quality)
+                    logger.info(f"保存图片: {output_filename}")
+                
+                logger.info(f"PDF转图片完成: {img_path}")
+                return True, img_path  # 返回原路径，因为PDF转换会生成多个文件
+            except Exception as e:
+                logger.error(f"PDF转图片失败: {img_path}, 错误: {e}")
+                logger.error(f"异常详情: {traceback.format_exc()}")
+                return False, ""
+        else:
+            # 普通图片转换
+            # 处理目标格式，将jpeg转换为jpg，保持一致性
+            normalized_target = 'jpg' if target_format.lower() == 'jpeg' else target_format.lower()
+            new_path = os.path.join(dirname, f"{basename}.{normalized_target}")
+            
+            # 检查转换后的文件是否已存在，如果存在则跳过
+            if os.path.exists(new_path):
+                logger.info(f"转换后的文件已存在，跳过: {new_path}")
+                return True, new_path
+            
+            # 使用更可靠的命令构建方式，确保中文路径被正确处理
+            # 在Linux上，ImageMagick 7+ 也使用 magick 命令，而不是 convert
+            if platform.system() == 'Windows':
+                cmd = [
+                    'magick', img_path,
+                    '-quality', str(quality),
+                    '-strip',  # 移除元数据
+                    '-interlace', 'Plane',  # 渐进式JPEG
+                    '-colorspace', 'sRGB',  # 确保sRGB色彩空间
+                    new_path
+                ]
+            else:
+                # 检查系统上可用的ImageMagick命令
+                try:
+                    # 先尝试magick命令（ImageMagick 7+）
+                    subprocess.run(['magick', '--version'], capture_output=True, text=True, timeout=5)
+                    cmd = [
+                        'magick', img_path,
+                        '-quality', str(quality),
+                        '-strip',  # 移除元数据
+                        '-interlace', 'Plane',  # 渐进式JPEG
+                        '-colorspace', 'sRGB',  # 确保sRGB色彩空间
+                        new_path
+                    ]
+                except:
+                    # 回退到convert命令（ImageMagick 6）
+                    cmd = [
+                        'convert', img_path,
+                        '-quality', str(quality),
+                        '-strip',  # 移除元数据
+                        '-interlace', 'Plane',  # 渐进式JPEG
+                        '-colorspace', 'sRGB',  # 确保sRGB色彩空间
+                        new_path
+                    ]
+            
+            # 执行命令
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.error(f"转换图片失败: {img_path}, 错误: {result.stderr}")
+                return False, ""
+            
+            logger.info(f"转换完成: {img_path} -> {new_path}")
+            return True, new_path
+    except Exception as e:
+        logger.error(f"转换图片失败: {img_path}, 错误: {e}")
+        return False, ""
 
 # 获取文件大小
 def get_file_size(filepath):
@@ -205,7 +359,27 @@ def preview_image():
     # 验证图片文件
     if not path or not os.path.isfile(path) or not is_image_file(path):
         logger.warning(f"无效的图片文件: {path}")
-        return jsonify({'error': 'Invalid image file'}), 400
+        return jsonify({'error': '无效的图片文件: {path}'}), 400
+    
+    # 获取文件扩展名
+    ext = os.path.splitext(path)[1].lower()[1:]
+    
+    # 处理PDF文件
+    if ext == 'pdf':
+        try:
+            size = get_file_size(path)
+            logger.info(f"成功获取PDF文件信息: PDF, {size} bytes")
+            
+            return jsonify({
+                'path': path,
+                'width': 0,  # PDF文件不返回宽高
+                'height': 0,  # PDF文件不返回宽高
+                'format': 'PDF',
+                'size': size
+            })
+        except Exception as e:
+            logger.error(f"获取PDF文件信息失败: {e}")
+            return jsonify({'error': str(e)}), 500
     
     # 获取图片信息
     try:
@@ -224,38 +398,56 @@ def preview_image():
         })
     except Exception as e:
         logger.error(f"获取图片信息失败: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': '获取图片信息失败: {e}'}), 500
 
 @app.route('/preview/<path:filepath>')
 def preview_file(filepath):
     """
-    预览图片文件
+    预览图片或PDF文件
     请求方法: GET
-    请求参数: filepath - 图片文件相对路径
-    返回: 图片文件内容
+    请求参数: filepath - 图片或PDF文件相对路径
+    返回: 图片文件内容或PDF第一页的图像
     """
-    logger.info(f"预览图片文件，相对路径: {filepath}")
+    logger.info(f"预览文件，相对路径: {filepath}")
     
-    # 确保文件在BASE_DIR下，防止目录遍历攻击
-    # 使用os.path.join自动处理不同平台的路径分隔符
-    full_path = os.path.normpath(os.path.join(BASE_DIR, filepath.replace('/', os.sep)))
+    # 构建完整路径
+    # 情况1: 如果filepath是绝对路径（包含:），直接使用
+    if ':' in filepath:
+        full_path = filepath
+    # 情况2: 否则，结合BASE_DIR构建绝对路径
+    else:
+        # 使用os.path.join自动处理不同平台的路径分隔符
+        full_path = os.path.normpath(os.path.join(BASE_DIR, filepath.replace('/', os.sep)))
+    
     logger.info(f"生成完整路径: {full_path}")
+    logger.debug(f"BASE_DIR: {BASE_DIR}")
     
     # 验证文件
-    if not full_path.startswith(BASE_DIR):
-        logger.warning(f"路径 {full_path} 不在BASE_DIR下")
-        return 'File not found', 404
     if not os.path.isfile(full_path):
         logger.warning(f"文件不存在: {full_path}")
         return 'File not found', 404
     if not is_image_file(full_path):
-        logger.warning(f"不是图片文件: {full_path}")
+        logger.warning(f"不是支持的文件类型: {full_path}")
         return 'File not found', 404
     
-    # 返回图片文件
+    # 检查文件扩展名
+    ext = os.path.splitext(full_path)[1].lower()[1:]
+    
+    # 只处理普通图片文件，PDF文件由前端直接下载
     logger.info(f"返回图片文件: {full_path}")
-    from flask import send_file
-    return send_file(full_path)
+    logger.debug(f"文件存在: {os.path.exists(full_path)}")
+    logger.debug(f"文件大小: {os.path.getsize(full_path)} bytes")
+    logger.debug(f"文件类型: {mimetypes.guess_type(full_path)[0]}")
+    try:
+        response = send_file(full_path)
+        logger.debug(f"send_file返回成功，响应头: {dict(response.headers)}")
+        return response
+    except Exception as e:
+        logger.error(f"send_file失败: {type(e).__name__}: {str(e)}")
+        logger.error(f"异常详情: {traceback.format_exc()}")
+        return f'Image preview failed: {str(e)}', 500
+
+
 
 @app.route('/convert_tiff_preview')
 def convert_tiff_preview():
@@ -282,11 +474,15 @@ def convert_tiff_preview():
         logger.warning(f"不是图片文件: {full_path}")
         return 'File not found', 404
     
+    # 检查文件扩展名，确保是TIFF文件
+    ext = os.path.splitext(full_path)[1].lower()[1:]
+    if ext not in ['tiff', 'tif']:
+        logger.warning(f"只有TIFF文件支持预览转换: {full_path}")
+        return 'Only TIFF files are supported for preview conversion', 400
+    
     try:
         # 打开TIFF图片并转换为PNG
         logger.info(f"开始转换TIFF图片: {full_path}")
-        from flask import send_file
-        import io
         
         with Image.open(full_path) as img:
             # 如果是多页TIFF，只取第一页
@@ -301,9 +497,12 @@ def convert_tiff_preview():
             
             logger.info(f"TIFF图片转换成功: {full_path}")
             # 返回PNG图片
-            return send_file(buffer, mimetype='image/png')
+            response = send_file(buffer, mimetype='image/png')
+            logger.debug(f"send_file返回成功，响应头: {dict(response.headers)}")
+            return response
     except Exception as e:
-        logger.error(f"转换TIFF图片失败: {e}")
+        logger.error(f"转换TIFF图片失败: {type(e).__name__}: {str(e)}")
+        logger.error(f"异常详情: {traceback.format_exc()}")
         return 'Error converting TIFF to PNG', 500
 
 @app.route('/count_formats', methods=['POST'])
@@ -319,7 +518,7 @@ def count_formats():
     
     if not selected_paths:
         logger.warning("未选中任何文件或文件夹")
-        return jsonify({'error': 'No files selected'}), 400
+        return jsonify({'error': '未选中任何文件或文件夹'}), 400
     
     format_count = {}  # 格式 -> 数量
     format_size = {}   # 格式 -> 总大小
@@ -376,12 +575,12 @@ def count_formats():
         })
     except Exception as e:
         logger.error(f"统计文件格式失败: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': '统计文件格式失败: {e}'}), 500
 
 @app.route('/fix_extensions', methods=['POST'])
 def fix_extensions():
     """
-    修复文件后缀，将大写扩展名改为小写
+    修复文件后缀，将大写扩展名改为小写，并将jpeg改为jpg
     请求方法: POST
     请求参数: selected_paths - 要修复的文件或文件夹路径列表
     返回: JSON格式的修复结果，包括处理的文件数量
@@ -391,7 +590,7 @@ def fix_extensions():
     
     if not selected_paths:
         logger.warning("未选中任何文件或文件夹")
-        return jsonify({'error': 'No files selected'}), 400
+        return jsonify({'error': '未选中任何文件或文件夹'}), 400
     
     processed = 0  # 处理的文件数量
     
@@ -405,28 +604,48 @@ def fix_extensions():
                         # 检查文件是否为图片
                         if is_image_file(file):
                             # 获取文件扩展名，确保使用正确的分割方法
-                            _, ext = os.path.splitext(file)
-                            # 检查扩展名是否包含大写
-                            if any(c.isupper() for c in ext[1:]):  # ext包含点号，所以从索引1开始
+                            name_without_ext, ext = os.path.splitext(file)
+                            # 标准化扩展名
+                            ext_lower = ext.lower()
+                            # 检查是否需要修复：1) 包含大写 2) 是jpeg
+                            needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
+                            
+                            if needs_fix:
                                 old_path = os.path.join(root, file)
-                                # 生成新文件名，将扩展名改为小写
-                                name_without_ext = os.path.splitext(file)[0]
-                                new_name = f"{name_without_ext}{ext.lower()}"
+                                # 生成新扩展名：如果是jpeg则改为jpg，否则保留原扩展名的小写
+                                new_ext = '.jpg' if ext_lower == '.jpeg' else ext_lower
+                                # 生成新文件名
+                                new_name = f"{name_without_ext}{new_ext}"
                                 new_path = os.path.join(root, new_name)
+                                # 检查新文件名是否已存在
+                                if os.path.exists(new_path):
+                                    logger.info(f"文件已存在，跳过: {new_path}")
+                                    continue
                                 # 重命名文件
                                 os.rename(old_path, new_path)
                                 logger.info(f"重命名文件: {old_path} -> {new_path}")
                                 processed += 1
             elif os.path.isfile(path) and is_image_file(path):
                 logger.info(f"修复文件: {path}")
-                # 检查文件扩展名是否包含大写
-                _, ext = os.path.splitext(path)
-                if any(c.isupper() for c in ext[1:]):  # ext包含点号，所以从索引1开始
-                    # 生成新文件名，将扩展名改为小写
+                # 获取文件扩展名
+                filename = os.path.basename(path)
+                name_without_ext, ext = os.path.splitext(filename)
+                # 标准化扩展名
+                ext_lower = ext.lower()
+                # 检查是否需要修复：1) 包含大写 2) 是jpeg
+                needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
+                
+                if needs_fix:
+                    # 生成新扩展名：如果是jpeg则改为jpg，否则保留原扩展名的小写
+                    new_ext = '.jpg' if ext_lower == '.jpeg' else ext_lower
+                    # 生成新文件名
+                    new_name = f"{name_without_ext}{new_ext}"
                     dirname = os.path.dirname(path)
-                    name_without_ext = os.path.splitext(os.path.basename(path))[0]
-                    new_name = f"{name_without_ext}{ext.lower()}"
                     new_path = os.path.join(dirname, new_name)
+                    # 检查新文件名是否已存在
+                    if os.path.exists(new_path):
+                        logger.info(f"文件已存在，跳过: {new_path}")
+                        continue
                     # 重命名文件
                     os.rename(path, new_path)
                     logger.info(f"重命名文件: {path} -> {new_path}")
@@ -436,7 +655,7 @@ def fix_extensions():
         return jsonify({'processed': processed})
     except Exception as e:
         logger.error(f"修复文件后缀失败: {e}")
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': '修复文件后缀失败: {e}'}), 500
 
 @app.route('/compress_images', methods=['POST'])
 def compress_images():
@@ -461,7 +680,12 @@ def compress_images():
     
     if not selected_paths:
         logger.warning("未选中任何文件或文件夹")
-        return jsonify({'error': 'No files selected'}), 400
+        return jsonify({'error': '未选中任何文件或文件夹'}), 400
+    
+    # 检查ImageMagick是否可用
+    if not IMAGEMAGICK_AVAILABLE:
+        logger.error("ImageMagick不可用，无法压缩图片")
+        return jsonify({'error': 'ImageMagick不可用'}), 500
     
     # 重置进度
     with progress_lock:
@@ -472,7 +696,8 @@ def compress_images():
             'start_time': datetime.now().isoformat(),
             'end_time': None,
             'original_size': 0,
-            'final_size': 0
+            'final_size': 0,
+            'current_file': ''
         }
     
     # 获取所有图片文件
@@ -511,6 +736,14 @@ def compress_images():
         """
         global progress_data
         try:
+            # 检查文件扩展名，如果是PDF则跳过压缩
+            ext = os.path.splitext(img_path)[1].lower()[1:]
+            if ext == 'pdf':
+                logger.info(f"跳过PDF文件压缩: {img_path}")
+                with progress_lock:
+                    progress_data['processed'] += 1
+                return
+            
             logger.info(f"压缩图片: {img_path}")
             
             # 更新当前正在处理的图片路径
@@ -519,18 +752,13 @@ def compress_images():
             
             original_size = get_file_size(img_path)
             
-            with Image.open(img_path) as img:
-                # 如果图片是JPEG格式且模式是RGBA，转换为RGB模式
-                ext = img_path.lower().split('.')[-1]
-                if ext in ['jpg', 'jpeg'] and img.mode == 'RGBA':
-                    logger.info(f"将图片 {img_path} 从 RGBA 转换为 RGB 模式")
-                    img = img.convert('RGB')
-                
-                # 保存图片，使用指定质量
-                img.save(img_path, optimize=True, quality=quality)
-            
-            final_size = get_file_size(img_path)
-            logger.info(f"压缩完成: {img_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
+            # 使用ImageMagick压缩图片
+            if compress_image_with_imagemagick(img_path, quality):
+                final_size = get_file_size(img_path)
+                logger.info(f"压缩完成: {img_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
+            else:
+                final_size = original_size
+                logger.error(f"压缩失败: {img_path}")
             
             with progress_lock:
                 progress_data['processed'] += 1
@@ -584,7 +812,30 @@ def convert_images():
     
     if not selected_paths:
         logger.warning("未选中任何文件或文件夹")
-        return jsonify({'error': 'No files selected'}), 400
+        return jsonify({'error': '未选中任何文件或文件夹'}), 400
+    
+    # 检查ImageMagick是否可用
+    if not IMAGEMAGICK_AVAILABLE:
+        logger.error("ImageMagick不可用，无法转换图片")
+        return jsonify({'error': 'ImageMagick不可用'}), 500
+    
+    # 检查是否包含PDF文件且目标格式不是jpg
+    has_pdf = False
+    for path in selected_paths:
+        if os.path.isfile(path) and path.lower().endswith('.pdf'):
+            has_pdf = True
+            break
+        elif os.path.isdir(path):
+            # 检查目录中是否包含PDF文件
+            import glob
+            pdf_files = glob.glob(os.path.join(path, '*.pdf'), recursive=True)
+            if pdf_files:
+                has_pdf = True
+                break
+    
+    if has_pdf and target_format.lower() != 'jpg':
+        logger.warning(f"PDF文件只能转换为jpg格式，请求的格式: {target_format}")
+        return jsonify({'error': 'PDF文件只能转换为jpg格式'}), 400
     
     # 重置进度
     with progress_lock:
@@ -595,23 +846,37 @@ def convert_images():
             'start_time': datetime.now().isoformat(),
             'end_time': None,
             'original_size': 0,
-            'final_size': 0
+            'final_size': 0,
+            'current_file': ''
         }
     
     # 获取所有图片文件，排除目标格式
     all_images = []
     target_format_lower = target_format.lower()
+    
+    # 处理目标格式，将jpeg转换为jpg，保持一致性
+    normalized_target = 'jpg' if target_format_lower == 'jpeg' else target_format_lower
+    
     for path in selected_paths:
         if os.path.isdir(path):
-            logger.info(f"获取目录中的图片，排除目标格式: {target_format_lower}, 路径: {path}")
-            all_images.extend(get_all_images(path, exclude_formats=[target_format_lower]))
+            # 构建排除格式列表，包含jpg和jpeg如果目标是其中之一
+            exclude_formats = [normalized_target]
+            if normalized_target == 'jpg':
+                exclude_formats.append('jpeg')
+            
+            logger.info(f"获取目录中的图片，排除目标格式: {normalized_target}, 路径: {path}")
+            all_images.extend(get_all_images(path, exclude_formats=exclude_formats))
         elif os.path.isfile(path) and is_image_file(path):
             ext = os.path.basename(path).lower().split('.')[-1]
-            if ext != target_format_lower:
-                logger.info(f"添加图片: {path}, 当前格式: {ext}, 目标格式: {target_format_lower}")
+            
+            # 规范化当前文件格式
+            normalized_ext = 'jpg' if ext == 'jpeg' else ext
+            
+            if normalized_ext != normalized_target:
+                logger.info(f"添加图片: {path}, 当前格式: {ext}, 目标格式: {normalized_target}")
                 all_images.append(path)
             else:
-                logger.info(f"跳过图片: {path}, 当前格式与目标格式相同: {target_format_lower}")
+                logger.info(f"跳过图片: {path}, 当前格式与目标格式相同: {ext} -> {normalized_target}")
     
     logger.info(f"共找到 {len(all_images)} 个需要转换的图片文件")
     
@@ -641,25 +906,46 @@ def convert_images():
             
             original_size = get_file_size(img_path)
             
-            # 生成新文件名
-            dirname = os.path.dirname(img_path)
-            basename = os.path.basename(img_path).split('.')[0]
-            new_path = os.path.join(dirname, f"{basename}.{target_format}")
+            # 使用ImageMagick转换图片格式
+            success, new_path = convert_image_with_imagemagick(img_path, target_format, quality)
             
-            with Image.open(img_path) as img:
-                # 如果目标格式是JPEG，且图片模式是RGBA，转换为RGB模式
-                if target_format.lower() in ['jpg', 'jpeg'] and img.mode == 'RGBA':
-                    logger.info(f"将图片 {img_path} 从 RGBA 转换为 RGB 模式")
-                    img = img.convert('RGB')
+            if success:
+                # 获取文件扩展名
+                ext = os.path.splitext(img_path)[1].lower()[1:]
                 
-                # 保存图片，使用指定质量
-                img.save(new_path, format=SUPPORTED_FORMATS[target_format], quality=quality)
-            
-            # 删除原文件
-            os.remove(img_path)
-            
-            final_size = get_file_size(new_path)
-            logger.info(f"转换完成: {img_path} -> {new_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
+                if ext == 'pdf':
+                    # PDF文件转换，不删除原文件，因为会生成多个图片文件
+                    logger.info(f"PDF转图片完成，保留原文件: {img_path}")
+                    # 计算转换后所有图片的总大小
+                    dirname = os.path.dirname(img_path)
+                    basename = os.path.basename(img_path).split('.')[0]
+                    # 查找所有生成的图片文件
+                    import glob
+                    output_files = glob.glob(os.path.join(dirname, f"{basename}-*.{target_format}"))
+                    final_size = sum(get_file_size(f) for f in output_files)
+                    logger.info(f"PDF转图片生成 {len(output_files)} 个文件，总大小: {final_size} bytes")
+                else:
+                    if new_path != img_path:  # 只有当新路径和原路径不同时才删除原文件
+                        # 检查转换后的文件是否是新创建的（不是跳过的）
+                        if os.path.exists(new_path):
+                            # 检查原文件是否与新文件不同
+                            if os.path.abspath(new_path) != os.path.abspath(img_path):
+                                # 删除原文件
+                                os.remove(img_path)
+                                final_size = get_file_size(new_path)
+                                logger.info(f"转换完成: {img_path} -> {new_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
+                            else:
+                                final_size = original_size
+                                logger.info(f"转换后的文件与原文件相同，跳过删除: {img_path}")
+                        else:
+                            final_size = original_size
+                            logger.error(f"转换失败: {img_path}")
+                    else:
+                        final_size = original_size
+                        logger.info(f"转换后的文件与原文件路径相同，跳过: {img_path}")
+            else:
+                final_size = original_size
+                logger.error(f"转换失败: {img_path}")
             
             with progress_lock:
                 progress_data['processed'] += 1
@@ -697,8 +983,24 @@ def get_progress():
 
 @app.route('/get_supported_formats')
 def get_supported_formats():
-    # 返回支持的格式列表
-    return jsonify({'formats': list(SUPPORTED_FORMATS.keys())})
+    """
+    返回支持的格式列表，将jpg和jpeg合并为一种格式
+    """
+    # 获取所有格式键
+    all_formats = list(SUPPORTED_FORMATS.keys())
+    
+    # 去重处理，将jpg和jpeg视为同一种格式，只保留jpg
+    unique_formats = []
+    seen = set()
+    
+    for fmt in all_formats:
+        # 将jpeg转换为jpg，保持格式一致性
+        normalized_fmt = 'jpg' if fmt == 'jpeg' else fmt
+        if normalized_fmt not in seen:
+            seen.add(normalized_fmt)
+            unique_formats.append(normalized_fmt)
+    
+    return jsonify({'formats': unique_formats})
 
 @app.route('/reset_progress', methods=['POST'])
 def reset_progress():
@@ -721,6 +1023,28 @@ def reset_progress():
         }
         logger.info("进度状态已重置为idle")
     return jsonify({'status': 'success'})
+
+@app.route('/download', methods=['GET'])
+def download_file():
+    """
+    下载文件
+    请求方法: GET
+    请求参数: path - 文件路径
+    返回: 文件内容
+    """
+    file_path = request.args.get('path')
+    logger.info(f"下载文件: {file_path}")
+    
+    if not file_path or not os.path.isfile(file_path):
+        logger.warning(f"无效的文件路径: {file_path}")
+        return 'Invalid file path', 400
+    
+    try:
+        logger.info(f"返回文件: {file_path}")
+        return send_file(file_path, as_attachment=True)
+    except Exception as e:
+        logger.error(f"下载文件失败: {type(e).__name__}: {str(e)}")
+        return f'Download failed: {str(e)}', 500
 
 @app.route('/get_config')
 def get_config():

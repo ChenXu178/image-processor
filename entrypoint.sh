@@ -31,4 +31,4 @@ chown -R $PUID:$PGID /app
 
 # 使用appuser用户运行应用程序
 echo "Running application as appuser ($PUID:$PGID)"
-exec gosu $PUID:$PGID python app.py
+exec gosu $PUID:$PGID python3 app.py
