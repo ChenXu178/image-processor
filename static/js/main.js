@@ -27,6 +27,8 @@ let baseDir = '';
 let supportedFormats = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'heic', 'bmp', 'gif', 'tiff'];
 // 进度轮询定时器
 let progressInterval = null;
+// 是否正在进行图片处理（压缩或转换）
+let isProcessing = false;
 
 $(document).ready(function() {
     // 加载配置信息
@@ -261,6 +263,12 @@ $(document).ready(function() {
         // 更新进度标题
         $('#progress-title').text('图片压缩');
         
+        // 设置处理标志位为true
+        isProcessing = true;
+        
+        // 关闭可能已经显示的悬浮预览
+        hideHoverPreview();
+        
         // 显示进度
         $('#progress-overlay').show();
         
@@ -300,6 +308,8 @@ $(document).ready(function() {
             },
             error: function(xhr, status, error) {
                 $('#progress-overlay').hide();
+                // 设置处理标志位为false
+                isProcessing = false;
                 alert('压缩失败: ' + error);
             }
         });
@@ -322,6 +332,12 @@ $(document).ready(function() {
         
         // 更新进度标题
         $('#progress-title').text(`图片转换成${targetFormat}`);
+        
+        // 设置处理标志位为true
+        isProcessing = true;
+        
+        // 关闭可能已经显示的悬浮预览
+        hideHoverPreview();
         
         // 显示进度
         $('#progress-overlay').show();
@@ -362,6 +378,8 @@ $(document).ready(function() {
             },
             error: function(xhr, status, error) {
                 $('#progress-overlay').hide();
+                // 设置处理标志位为false
+                isProcessing = false;
                 // 显示友好的错误信息
                 let errorMessage = '转换失败: ';
                 if (xhr.responseJSON && xhr.responseJSON.error) {
@@ -393,6 +411,9 @@ $(document).ready(function() {
         $('#progress-overlay').hide();
         $('#statistics').hide();
         $('#close-progress').hide();
+        
+        // 设置处理标志位为false
+        isProcessing = false;
         
         // 关闭进度后，重置后端进度状态
         $.ajax({
@@ -578,6 +599,11 @@ function bindFileListEvents() {
 function showHoverPreview(path, mouseX, mouseY) {
     // 如果弹窗预览已经打开，不显示悬浮预览
     if (isModalPreviewOpen) {
+        return;
+    }
+    
+    // 如果正在进行图片处理，不显示悬浮预览
+    if (isProcessing) {
         return;
     }
     

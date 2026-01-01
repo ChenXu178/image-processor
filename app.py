@@ -89,8 +89,46 @@ def check_imagemagick():
         logger.warning("程序将继续运行，但图片处理功能将不可用")
         return False
 
+# 检查jpegoptim是否可用
+def check_jpegoptim():
+    try:
+        result = subprocess.run(['jpegoptim', '--version'], capture_output=True, text=True, timeout=5)
+        version = result.stdout.strip().split()[1]
+        logger.info(f"jpegoptim版本: {version}")
+        return True
+    except Exception as e:
+        logger.info(f"jpegoptim不可用: {e}")
+        return False
+
+# 检查pngquant是否可用
+def check_pngquant():
+    try:
+        result = subprocess.run(['pngquant', '--version'], capture_output=True, text=True, timeout=5)
+        version = result.stdout.strip().split()[0]
+        logger.info(f"pngquant版本: {version}")
+        return True
+    except Exception as e:
+        logger.info(f"pngquant不可用: {e}")
+        return False
+
+# 检查cwebp是否可用
+def check_cwebp():
+    try:
+        result = subprocess.run(['cwebp', '-version'], capture_output=True, text=True, timeout=5)
+        version = result.stdout.strip().split()[0]
+        logger.info(f"cwebp版本: {version}")
+        return True
+    except Exception as e:
+        logger.info(f"cwebp不可用: {e}")
+        return False
+
 # 检查ImageMagick是否可用
 IMAGEMAGICK_AVAILABLE = check_imagemagick()
+
+# 检查专门压缩工具是否可用
+JPEGOPTIM_AVAILABLE = check_jpegoptim()
+PNGQUANT_AVAILABLE = check_pngquant()
+CWEBP_AVAILABLE = check_cwebp()
 
 logger.info(f"支持的图片格式: {list(SUPPORTED_FORMATS.keys())}")
 
@@ -129,6 +167,74 @@ def is_image_file(filename):
     # 使用os.path.splitext获取扩展名，更可靠的方法
     ext = os.path.splitext(filename)[1].lower()[1:]  # [1:] 移除点号
     return ext in SUPPORTED_FORMATS
+
+# 使用专门工具压缩图片（仅Linux平台）
+def compress_image_with_special_tools(img_path, quality):
+    """
+    使用专门的压缩工具压缩图片（仅Linux平台）
+    - JPG: jpegoptim
+    - PNG: pngquant
+    - WEBP: cwebp
+    
+    Args:
+        img_path (str): 图片文件路径
+        quality (int): 压缩质量，1-100，数值越高质量越好，文件越大
+        
+    Returns:
+        bool: 压缩成功返回True，失败返回False
+    """
+    try:
+        # 获取文件扩展名
+        ext = os.path.splitext(img_path)[1].lower()[1:]
+        
+        # 根据文件格式选择不同的压缩工具
+        if ext in ['jpg', 'jpeg']:
+            # JPG文件使用jpegoptim压缩
+            cmd = [
+                'jpegoptim',
+                '--max', str(quality),
+                '--strip-all',  # 移除所有元数据
+                '--all-progressive',  # 生成渐进式JPEG
+                '--quiet',  # 静默模式
+                img_path
+            ]
+        elif ext == 'png':
+            # PNG文件使用pngquant压缩
+            # pngquant的质量范围是0-100，与其他工具一致
+            cmd = [
+                'pngquant',
+                '--skip-if-larger'
+                '--quality', str(quality),
+                '--output', img_path,
+                '--force',  # 覆盖原文件
+                '--strip',  # 移除元数据
+                img_path
+            ]
+        elif ext == 'webp':
+            # WEBP文件使用cwebp压缩
+            cmd = [
+                'cwebp',
+                '-q', str(quality),
+                '-o', img_path,
+                img_path
+            ]
+        else:
+            # 其他格式不支持，返回False
+            logger.info(f"不支持的格式，无法使用专门工具压缩: {ext}")
+            return False
+        
+        # 执行命令
+        logger.info(f"使用{cmd[0]}压缩图片: {img_path}, 质量: {quality}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            logger.error(f"使用{cmd[0]}压缩图片失败: {img_path}, 错误: {result.stderr}")
+            return False
+        
+        logger.info(f"压缩完成: {img_path}")
+        return True
+    except Exception as e:
+        logger.error(f"使用专门工具压缩图片失败: {img_path}, 错误: {e}")
+        return False
 
 # 使用ImageMagick压缩图片
 def compress_image_with_imagemagick(img_path, quality):
@@ -191,9 +297,10 @@ def compress_image_with_imagemagick(img_path, quality):
                 ]
         
         # 执行命令
+        logger.info(f"使用ImageMagick压缩图片: {img_path}, 质量: {quality}")
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
-            logger.error(f"压缩图片失败: {img_path}, 错误: {result.stderr}")
+            logger.error(f"使用ImageMagick压缩图片失败: {img_path}, 错误: {result.stderr}")
             return False
         
         logger.info(f"压缩完成: {img_path}")
@@ -201,6 +308,53 @@ def compress_image_with_imagemagick(img_path, quality):
     except Exception as e:
         logger.error(f"压缩图片失败: {img_path}, 错误: {e}")
         return False
+
+# 压缩图片的统一入口函数
+def compress_image(img_path, quality):
+    """
+    压缩图片的统一入口函数
+    - Linux平台：使用专门的压缩工具（jpegoptim/pngquant/cwebp）
+    - Windows平台：使用ImageMagick
+    
+    Args:
+        img_path (str): 图片文件路径
+        quality (int): 压缩质量，1-100，数值越高质量越好，文件越大
+        
+    Returns:
+        bool: 压缩成功返回True，失败返回False
+    """
+    # 获取文件扩展名
+    ext = os.path.splitext(img_path)[1].lower()[1:]
+    
+    # 检查是否为支持的格式
+    if ext not in ['jpg', 'jpeg', 'png', 'webp']:
+        logger.info(f"不支持的格式，无法压缩: {ext}")
+        return False
+    
+    # Linux平台优先使用专门的压缩工具
+    if platform.system() != 'Windows':
+        try:
+            # 检查是否安装了相应的压缩工具
+            tool_available = False
+            if ext in ['jpg', 'jpeg']:
+                tool_available = JPEGOPTIM_AVAILABLE
+            elif ext == 'png':
+                tool_available = PNGQUANT_AVAILABLE
+            elif ext == 'webp':
+                tool_available = CWEBP_AVAILABLE
+            
+            # 如果工具可用，使用专门的压缩工具
+            if tool_available:
+                return compress_image_with_special_tools(img_path, quality)
+            else:
+                # 工具不可用，记录日志并回退到ImageMagick
+                tool_name = 'jpegoptim' if ext in ['jpg', 'jpeg'] else 'pngquant' if ext == 'png' else 'cwebp'
+                logger.warning(f"{tool_name}不可用，回退到ImageMagick")
+        except Exception as e:
+            logger.warning(f"专门的压缩工具不可用，回退到ImageMagick: {e}")
+    
+    # Windows平台或专门工具不可用时，使用ImageMagick
+    return compress_image_with_imagemagick(img_path, quality)
 
 # 使用ImageMagick转换图片格式
 def convert_image_with_imagemagick(img_path, target_format, quality):
@@ -1072,8 +1226,8 @@ def compress_images():
             
             original_size = get_file_size(img_path)
             
-            # 使用ImageMagick压缩图片
-            if compress_image_with_imagemagick(img_path, quality):
+            # 使用统一压缩函数（会自动选择合适的压缩工具）
+            if compress_image(img_path, quality):
                 final_size = get_file_size(img_path)
                 logger.info(f"压缩完成: {img_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
                 with progress_lock:

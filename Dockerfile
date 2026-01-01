@@ -12,13 +12,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libwebp7 \
     libtiff5 \
     libpng16-16 \
-    libavif13 \ 
+    libavif13 \
     libgif7 \
     zlib1g \
     poppler-utils \
     file \
     python3 \
     python3-pip \
+    jpegoptim \
+    pngquant \
+    webp \
     && rm -rf /var/lib/apt/lists/*
 
 RUN sed -i 's/<policy domain="coder" rights="none" pattern="PDF" \/>/<policy domain="coder" rights="read|write" pattern="PDF" \/>/' /etc/ImageMagick-6/policy.xml && \
