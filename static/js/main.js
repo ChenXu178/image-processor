@@ -33,6 +33,8 @@ let isProcessing = false;
 let isStopping = false;
 // 模态框预览是否正在加载
 let isModalPreviewLoading = false;
+// 鼠标悬停预览
+let hoverTimeout = null;
 
 $(document).ready(function() {
     // 加载配置信息
@@ -556,7 +558,13 @@ function bindFileListEvents() {
         const path = $(this).data('path');
         const type = $(this).data('type');
         
-        // 如果点击的是文件名，处理不同类型
+        // 立即清除悬浮预览的延迟，避免两种预览同时出现
+        if (hoverTimeout) {
+            clearTimeout(hoverTimeout);
+            hoverTimeout = null;
+        }
+        
+        // 如果点击的是文件名或图标，处理不同类型
         if (e.target.classList.contains('filename') || e.target.classList.contains('icon')) {
             if (type === 'dir') {
                 // 进入文件夹
@@ -571,7 +579,7 @@ function bindFileListEvents() {
     
     // 点击复选框
     $('.file-list-item .checkbox').on('click', function(e) {
-        e.stopPropagation(); // 阻止事件冒泡
+        e.stopPropagation(); // 阻止事件冒泡到父元素
         
         const fileItem = $(this).closest('.file-list-item');
         const path = fileItem.data('path');
@@ -589,14 +597,11 @@ function bindFileListEvents() {
             }
         }
         
-        // 更新已选择列表
-            updateSelectedFilesList();
-            // 更新按钮状态
-            updateButtons();
+        // 更新已选择列表和按钮状态
+        updateSelectedFilesList();
+        updateButtons();
     });
     
-    // 鼠标悬停预览
-    let hoverTimeout = null;
     
     // 鼠标进入事件
     $('.file-list-item').on('mouseenter', function(e) {
@@ -836,6 +841,12 @@ function previewImage(path) {
     // 设置模态框预览加载标志，防止悬浮预览冲突
     isModalPreviewLoading = true;
     
+    // 立即清除悬浮预览的延迟
+    if (hoverTimeout) {
+        clearTimeout(hoverTimeout);
+        hoverTimeout = null;
+    }
+
     // 关闭当前可能显示的悬浮预览
     hideHoverPreview();
     
@@ -882,7 +893,7 @@ function previewImage(path) {
                 }
                 // 确保预览URL格式正确
                 const previewUrl = '/preview/' + encodeURIComponent(previewPath);
-                console.log('图片预览URL:', previewUrl);
+                log('debug', '图片预览URL:', previewUrl);
                 $('#preview-image').attr('src', previewUrl);
             }
             
@@ -912,8 +923,28 @@ function previewImage(path) {
                     // 跳过过长的值
                     const displayValue = typeof value === 'string' && value.length > 50 ? value.substring(0, 50) + '...' : value;
                     infoHtml += `<div class="exif-item" style="background: #f8f9fa; padding: 8px; border-radius: 4px;">`;
-                    infoHtml += `<strong style="display: block; color: #495057; margin-bottom: 2px;">${key}:</strong>`;
-                    infoHtml += `<span style="color: #6c757d;">${displayValue}</span>`;
+                    
+                    // 为拍摄地址添加查询按钮到标题旁边
+                    if (key === '拍摄地址') {
+                        // 尝试提取经纬度
+                        const coordsMatch = displayValue.match(/坐标: ([\d.-]+), ([\d.-]+)/);
+                        if (coordsMatch) {
+                            const lat = parseFloat(coordsMatch[1]);
+                            const lon = parseFloat(coordsMatch[2]);
+                            infoHtml += `<strong style="color: #495057; margin-bottom: 2px; display: inline-block;">${key}:</strong>`;
+                            infoHtml += `<button class="query-address-btn btn btn-sm btn-outline-primary" 
+                                        style="margin-left: 8px; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 4px;" 
+                                        data-lat="${lat}" data-lon="${lon}" title="查询详细地址">
+                                        <span>查询地址</span>
+                                        </button>`;
+                        } else {
+                            infoHtml += `<strong style="display: block; color: #495057; margin-bottom: 2px;">${key}:</strong>`;
+                        }
+                    } else {
+                        infoHtml += `<strong style="display: block; color: #495057; margin-bottom: 2px;">${key}:</strong>`;
+                    }
+                    
+                    infoHtml += `<span style="color: #6c757d; display: block;">${displayValue}</span>`;
                     infoHtml += `</div>`;
                 }
                 
@@ -935,6 +966,49 @@ function previewImage(path) {
                         exifContainer.hide();
                         $(this).text('显示EXIF信息');
                     }
+                });
+                
+                // 为查询地址按钮绑定点击事件
+                $('#image-info').on('click', '.query-address-btn', function() {
+                    const lat = $(this).data('lat');
+                    const lon = $(this).data('lon');
+                    const button = $(this);
+                    const originalText = button.text();
+                    
+                    // 显示加载状态
+                    button.text('查询中...').prop('disabled', true);
+                    
+                    // 调用API查询地址
+                    $.ajax({
+                        url: '/get_address_from_coords',
+                        type: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ lat: lat, lon: lon }),
+                        success: function(response) {
+                            if (response.address) {
+                                // 更新显示的地址
+                                const exifItem = button.closest('.exif-item');
+                                exifItem.find('span').text(response.address);
+                                // 隐藏查询按钮
+                                button.hide();
+                            } else {
+                                alert('无法查询到地址');
+                            }
+                        },
+                        error: function(xhr, status, error) {
+                            log('error', '查询地址失败:', error);
+                            let errorMsg = '查询地址失败';
+                            if (xhr.responseJSON && xhr.responseJSON.error) {
+                                errorMsg = '查询地址失败: ' + xhr.responseJSON.error;
+                                log('error', '查询地址详细错误:', xhr.responseJSON.error);
+                            }
+                            alert(errorMsg);
+                        },
+                        complete: function() {
+                            // 恢复按钮状态
+                            button.text(originalText).prop('disabled', false);
+                        }
+                    });
                 });
             }
             

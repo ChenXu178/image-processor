@@ -48,6 +48,13 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# 导入geopy库用于地址查询
+from geopy.geocoders import Nominatim
+
+# 初始化geocoder，使用zh-CN语言
+gelocator = Nominatim(user_agent="image-processor", timeout=5)
+logger.info("成功加载并初始化geopy库")
+
 app = Flask(__name__)
 app.secret_key = 'your-secret-key'  # 用于session管理
 
@@ -88,6 +95,34 @@ def check_imagemagick():
         logger.warning(f"ImageMagick不可用: {e}")
         logger.warning("程序将继续运行，但图片处理功能将不可用")
         return False
+
+# 根据GPS坐标查询地址的API端点
+@app.route('/get_address_from_coords', methods=['POST'])
+def get_address_from_coords():
+    """根据GPS坐标查询地址"""
+    try:
+        data = request.get_json()
+        lat = data.get('lat')
+        lon = data.get('lon')
+        
+        if not lat or not lon:
+            return jsonify({'error': '缺少必要的坐标参数'}), 400
+        
+        logger.debug(f"根据坐标查询地址: lat={lat}, lon={lon}")
+        
+        # 使用geopy查询地址
+        location = gelocator.reverse((lat, lon), language='zh-CN')
+        
+        if location:
+            address = location.address
+            logger.info(f"成功查询到地址: {address}")
+            return jsonify({'address': address})
+        else:
+            logger.warning(f"无法查询到地址: lat={lat}, lon={lon}")
+            return jsonify({'error': '无法查询到地址'}), 404
+    except Exception as e:
+            logger.error(f"查询地址失败: {e}", exc_info=True)
+            return jsonify({'error': f'查询地址失败: {str(e)}'}), 500
 
 # 检查jpegoptim是否可用
 def check_jpegoptim():
@@ -197,7 +232,6 @@ def compress_image_with_special_tools(img_path, quality):
             cmd = [
                 'jpegoptim',
                 '--max', str(quality),
-                '--strip-all',  # 移除所有元数据
                 '--all-progressive',  # 生成渐进式JPEG
                 '--quiet',  # 静默模式
                 img_path
@@ -207,11 +241,10 @@ def compress_image_with_special_tools(img_path, quality):
             # pngquant的质量范围是0-100，与其他工具一致
             cmd = [
                 'pngquant',
-                '--skip-if-larger'
+                '--skip-if-larger',
                 '--quality', str(quality),
                 '--output', img_path,
                 '--force',  # 覆盖原文件
-                '--strip',  # 移除元数据
                 img_path
             ]
         elif ext == 'webp':
@@ -219,6 +252,7 @@ def compress_image_with_special_tools(img_path, quality):
             cmd = [
                 'cwebp',
                 '-q', str(quality),
+                '-metadata', 'all',  # 保留所有元数据
                 '-o', img_path,
                 img_path
             ]
@@ -256,7 +290,7 @@ def compress_image_with_imagemagick(img_path, quality):
         - 根据操作系统选择合适的ImageMagick命令
         - 在Windows上使用magick命令
         - 在Linux上先尝试magick命令（ImageMagick 7+），失败则回退到convert命令（ImageMagick 6）
-        - 使用-strip参数移除元数据，减小文件大小
+        - 保留EXIF元数据
         - 使用-interlace Plane生成渐进式JPEG，提高网页加载体验
         - 使用-sampling-factor 4:2:0进行色度抽样，平衡质量和大小
         - 使用-colorspace sRGB确保输出图片使用sRGB色彩空间，提高兼容性
@@ -268,7 +302,6 @@ def compress_image_with_imagemagick(img_path, quality):
             cmd = [
                 'magick', img_path,
                 '-quality', str(quality),
-                '-strip',  # 移除元数据
                 '-interlace', 'Plane',  # 渐进式JPEG
                 '-sampling-factor', '4:2:0',  # 色度抽样
                 '-colorspace', 'sRGB',  # 确保sRGB色彩空间
@@ -282,7 +315,6 @@ def compress_image_with_imagemagick(img_path, quality):
                 cmd = [
                     'magick', img_path,
                     '-quality', str(quality),
-                    '-strip',  # 移除元数据
                     '-interlace', 'Plane',  # 渐进式JPEG
                     '-sampling-factor', '4:2:0',  # 色度抽样
                     '-colorspace', 'sRGB',  # 确保sRGB色彩空间
@@ -293,7 +325,6 @@ def compress_image_with_imagemagick(img_path, quality):
                 cmd = [
                     'convert', img_path,
                     '-quality', str(quality),
-                    '-strip',  # 移除元数据
                     '-interlace', 'Plane',  # 渐进式JPEG
                     '-sampling-factor', '4:2:0',  # 色度抽样
                     '-colorspace', 'sRGB',  # 确保sRGB色彩空间
@@ -319,6 +350,7 @@ def compress_image(img_path, quality):
     压缩图片的统一入口函数
     - Linux平台：使用专门的压缩工具（jpegoptim/pngquant/cwebp）
     - Windows平台：使用ImageMagick
+    - 保留EXIF元数据
     
     Args:
         img_path (str): 图片文件路径
@@ -327,8 +359,11 @@ def compress_image(img_path, quality):
     Returns:
         bool: 压缩成功返回True，失败返回False
     """
+    logger.info(f"开始压缩图片，路径: {img_path}, 质量: {quality}")
+    
     # 获取文件扩展名
     ext = os.path.splitext(img_path)[1].lower()[1:]
+    logger.debug(f"图片格式: {ext}")
     
     # 检查是否为支持的格式
     if ext not in ['jpg', 'jpeg', 'png', 'webp']:
@@ -349,7 +384,10 @@ def compress_image(img_path, quality):
             
             # 如果工具可用，使用专门的压缩工具
             if tool_available:
-                return compress_image_with_special_tools(img_path, quality)
+                logger.debug(f"使用专门工具压缩图片，格式: {ext}")
+                result = compress_image_with_special_tools(img_path, quality)
+                logger.info(f"专门工具压缩结果: {'成功' if result else '失败'}")
+                return result
             else:
                 # 工具不可用，记录日志并回退到ImageMagick
                 tool_name = 'jpegoptim' if ext in ['jpg', 'jpeg'] else 'pngquant' if ext == 'png' else 'cwebp'
@@ -358,7 +396,10 @@ def compress_image(img_path, quality):
             logger.warning(f"专门的压缩工具不可用，回退到ImageMagick: {e}")
     
     # Windows平台或专门工具不可用时，使用ImageMagick
-    return compress_image_with_imagemagick(img_path, quality)
+    logger.debug(f"使用ImageMagick压缩图片")
+    result = compress_image_with_imagemagick(img_path, quality)
+    logger.info(f"ImageMagick压缩结果: {'成功' if result else '失败'}")
+    return result
 
 # 使用ImageMagick转换图片格式
 def convert_image_with_imagemagick(img_path, target_format, quality):
@@ -381,7 +422,9 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
         - 普通图片转换时，生成新的文件名，保留原文件名但更改扩展名
         - 检查转换后的文件是否已存在，如果存在则跳过
         - 对于目标格式为jpeg的情况，自动转换为jpg，保持一致性
+        - 保留EXIF元数据
     """
+    logger.info(f"开始转换图片，路径: {img_path}, 目标格式: {target_format}, 质量: {quality}")
     try:
         # 获取文件扩展名
         ext = os.path.splitext(img_path)[1].lower()[1:]
@@ -426,6 +469,8 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
             # 处理目标格式，将jpeg转换为jpg，保持一致性
             normalized_target = 'jpg' if target_format.lower() == 'jpeg' else target_format.lower()
             new_path = os.path.join(dirname, f"{basename}.{normalized_target}")
+            logger.debug(f"原始文件路径: {img_path}")
+            logger.debug(f"转换后文件路径: {new_path}")
             
             # 检查转换后的文件是否已存在，如果存在则跳过
             if os.path.exists(new_path):
@@ -440,7 +485,7 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
                 cmd = [
                     'magick', img_path,
                     '-quality', str(quality),
-                    '-strip',  # 移除元数据
+                    # 移除-strip，保留元数据
                     '-interlace', 'Plane',  # 渐进式JPEG
                     '-colorspace', 'sRGB',  # 确保sRGB色彩空间
                     new_path
@@ -453,7 +498,6 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
                     cmd = [
                         'magick', img_path,
                         '-quality', str(quality),
-                        '-strip',  # 移除元数据
                         '-interlace', 'Plane',  # 渐进式JPEG
                         '-colorspace', 'sRGB',  # 确保sRGB色彩空间
                         new_path
@@ -463,13 +507,13 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
                     cmd = [
                         'convert', img_path,
                         '-quality', str(quality),
-                        '-strip',  # 移除元数据
                         '-interlace', 'Plane',  # 渐进式JPEG
                         '-colorspace', 'sRGB',  # 确保sRGB色彩空间
                         new_path
                     ]
             
             # 执行命令
+            logger.debug(f"执行转换命令: {cmd}")
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
             if result.returncode != 0:
                 logger.error(f"转换图片失败: {img_path}, 错误: {result.stderr}")
@@ -628,13 +672,14 @@ def preview_image():
             if hasattr(img, '_getexif'):
                 exif_data = img._getexif()
                 if exif_data:
-                    from PIL.ExifTags import TAGS
+                    from PIL.ExifTags import TAGS, GPSTAGS
                     from fractions import Fraction
                     
                     # 导入EXIF字段名中英文映射字典
                     from exif_mapping import exif_field_map
                     # 导入EXIF标签类型和扩展值映射
                     from optimize_exif_parsing import EXIF_TAG_TYPES, extended_value_mappings
+                    # 使用全局的地理编码库配置，避免在请求处理函数内部导入和初始化
                     
                     # 将EXIF标签ID转换为可读名称
                     for tag, value in exif_data.items():
@@ -644,8 +689,74 @@ def preview_image():
                             # 确保tag_name始终是字符串类型
                             if isinstance(tag_name, int):
                                 tag_name = str(tag_name)
-                            # 过滤掉不需要显示的EXIF字段
-                            if tag_name not in ['JPEGThumbnail', 'MakerNote', 'GPSInfo']:
+                            
+                            # 特殊处理GPSInfo，它是一个嵌套字典，包含多个GPS子标签
+                            if tag_name == 'GPSInfo' and isinstance(value, dict):
+                                # 遍历GPS子标签
+                                for gps_tag, gps_value in value.items():
+                                    # 处理GPS子标签，使用GPSTAGS字典
+                                    if gps_tag in GPSTAGS:
+                                        gps_tag_name = GPSTAGS.get(gps_tag, gps_tag)
+                                        if isinstance(gps_tag_name, int):
+                                            gps_tag_name = str(gps_tag_name)
+                                        
+                                        # 转换不可序列化的类型
+                                        gps_serializable_value = gps_value
+                                        
+                                        # 处理PIL的IFDRational和Fraction类型
+                                        if hasattr(gps_value, 'numerator') and hasattr(gps_value, 'denominator'):
+                                            # 转换为浮点数
+                                            try:
+                                                gps_serializable_value = float(gps_value)
+                                            except:
+                                                gps_serializable_value = f"{gps_value.numerator}/{gps_value.denominator}"
+                                        # 处理元组类型（GPS坐标通常是元组）
+                                        elif isinstance(gps_value, tuple):
+                                            # 转换为列表
+                                            gps_serializable_value = list(gps_value)
+                                            # 递归转换列表中的元素
+                                            for i, v in enumerate(gps_serializable_value):
+                                                if hasattr(v, 'numerator') and hasattr(v, 'denominator'):
+                                                    try:
+                                                        gps_serializable_value[i] = float(v)
+                                                    except:
+                                                        gps_serializable_value[i] = f"{v.numerator}/{v.denominator}"
+                                        # 处理字节类型
+                                        elif isinstance(gps_value, bytes):
+                                            # 尝试将字节转换为可读格式
+                                            try:
+                                                # 过滤掉不可打印的字符
+                                                filtered_bytes = bytes([b for b in gps_value if 32 <= b <= 126])
+                                                if filtered_bytes:
+                                                    gps_serializable_value = filtered_bytes.decode('utf-8', errors='replace')
+                                                else:
+                                                    # 显示为十六进制
+                                                    gps_serializable_value = f"0x{gps_value.hex()}"
+                                            except:
+                                                gps_serializable_value = f"0x{gps_value.hex()}"
+                                        # 格式化GPS日期时间
+                                        elif gps_tag_name == 'GPSDateStamp' and isinstance(gps_value, str):
+                                            try:
+                                                # 格式：YYYY:MM:DD
+                                                gps_serializable_value = datetime.strptime(gps_value, '%Y:%m:%d').strftime('%Y-%m-%d')
+                                            except:
+                                                pass
+                                        
+                                        # 使用扩展的标签值映射优化GPS字段
+                                        if gps_tag_name in extended_value_mappings:
+                                            mapping = extended_value_mappings[gps_tag_name]
+                                            if isinstance(gps_serializable_value, (int, float)):
+                                                gps_serializable_value = mapping.get(int(gps_serializable_value), gps_serializable_value)
+                                            else:
+                                                gps_serializable_value = mapping.get(gps_serializable_value, gps_serializable_value)
+                                        
+                                        # 只添加非空值
+                                        if gps_serializable_value is not None:
+                                            # 使用中文字段名，如果没有映射则使用原字段名
+                                            chinese_gps_tag_name = exif_field_map.get(gps_tag_name, gps_tag_name)
+                                            exif[chinese_gps_tag_name] = gps_serializable_value
+                            # 处理其他标签
+                            elif tag_name not in ['JPEGThumbnail', 'MakerNote']:
                                 # 转换不可序列化的类型
                                 serializable_value = value
                                 
@@ -681,7 +792,7 @@ def preview_image():
                                     except:
                                         serializable_value = f"0x{value.hex()}"
                                 # 格式化日期时间
-                                elif tag_name in ['DateTime', 'DateTimeOriginal', 'DateTimeDigitized', 'GPSDateStamp'] and isinstance(value, str):
+                                elif tag_name in ['DateTime', 'DateTimeOriginal', 'DateTimeDigitized'] and isinstance(value, str):
                                     try:
                                         # 尝试解析不同的日期时间格式
                                         if ':' in value and ' ' in value:
@@ -707,14 +818,6 @@ def preview_image():
                                             serializable_value = f"1/{int(round(1/serializable_value))}秒"
                                         except:
                                             pass
-                                elif tag_name == 'Orientation':
-                                    # 方向：1=正常，2=水平翻转，3=旋转180，4=垂直翻转，5=顺时针旋转90+水平翻转，6=顺时针旋转90，7=顺时针旋转90+垂直翻转，8=逆时针旋转90
-                                    orientation_map = {
-                                        1: '正常', 2: '水平翻转', 3: '旋转180°', 4: '垂直翻转',
-                                        5: '顺时针旋转90°+水平翻转', 6: '顺时针旋转90°',
-                                        7: '顺时针旋转90°+垂直翻转', 8: '逆时针旋转90°'
-                                    }
-                                    serializable_value = orientation_map.get(serializable_value, serializable_value)
                                 # 使用扩展的标签值映射优化其他字段
                                 elif tag_name in extended_value_mappings:
                                     mapping = extended_value_mappings[tag_name]
@@ -728,6 +831,64 @@ def preview_image():
                                     # 使用中文字段名，如果没有映射则使用原字段名
                                     chinese_tag_name = exif_field_map.get(tag_name, tag_name)
                                     exif[chinese_tag_name] = serializable_value
+                    
+                    # 解析GPS经纬度为地址
+                    gps_latitude = None
+                    gps_longitude = None
+                    gps_latitude_ref = None
+                    gps_longitude_ref = None
+                    
+                    # 获取GPS经纬度信息
+                    for tag_name, value in exif.items():
+                        logger.debug(f"EXIF字段: {tag_name} = {value}")
+                        if tag_name == 'GPS纬度':
+                            gps_latitude = value
+                        elif tag_name == 'GPS经度':
+                            gps_longitude = value
+                        elif tag_name == 'GPS纬度参考':
+                            gps_latitude_ref = value
+                        elif tag_name == 'GPS经度参考':
+                            gps_longitude_ref = value
+                    
+                    # 如果有完整的GPS信息，解析为地址
+                    if gps_latitude and gps_longitude and gps_latitude_ref and gps_longitude_ref:
+                        try:
+                            # 转换GPS坐标格式：度分秒元组 -> 十进制度数
+                            def convert_gps_coordinate(coordinate, ref):
+                                decimal_degrees = 0.0
+                                
+                                # 处理GPS坐标，通常是 (度, 分, 秒) 的元组，每个元素是IFDRational类型
+                                if isinstance(coordinate, (list, tuple)) and len(coordinate) >= 3:
+                                    # 转换度、分、秒为浮点数
+                                    degrees = float(coordinate[0]) if hasattr(coordinate[0], 'numerator') and hasattr(coordinate[0], 'denominator') else float(coordinate[0])
+                                    minutes = float(coordinate[1]) if hasattr(coordinate[1], 'numerator') and hasattr(coordinate[1], 'denominator') else float(coordinate[1])
+                                    seconds = float(coordinate[2]) if hasattr(coordinate[2], 'numerator') and hasattr(coordinate[2], 'denominator') else float(coordinate[2])
+                                    
+                                    # 计算十进制度数
+                                    decimal_degrees = degrees + minutes/60 + seconds/3600
+                                elif isinstance(coordinate, (int, float)):
+                                    decimal_degrees = float(coordinate)
+                                
+                                # 根据参考方向调整符号
+                                if ref in ['S', 'W']:
+                                    decimal_degrees = -decimal_degrees
+                                
+                                return decimal_degrees
+                            
+                            # 转换为十进制度数
+                            logger.debug(f"GPS纬度: {gps_latitude}, 参考: {gps_latitude_ref}")
+                            logger.debug(f"GPS经度: {gps_longitude}, 参考: {gps_longitude_ref}")
+                            
+                            lat = convert_gps_coordinate(gps_latitude, gps_latitude_ref)
+                            lon = convert_gps_coordinate(gps_longitude, gps_longitude_ref)
+                            
+                            logger.debug(f"转换后的坐标: 纬度={lat}, 经度={lon}")
+                            
+                            address = f"坐标: {lat:.6f}, {lon:.6f}"
+                            exif['拍摄地址'] = address
+                            logger.info(f"显示原始GPS坐标: {address}")
+                        except Exception as e:
+                            logger.error(f"解析GPS地址失败: {e}", exc_info=True)
                     
         size = get_file_size(path)
         logger.info(f"成功获取图片信息: {width}x{height}, {format}, {size} bytes, EXIF字段: {len(exif)}")

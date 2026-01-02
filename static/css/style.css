@@ -317,6 +317,12 @@ body {
 }
 
 /* 图片预览模态框 */
+#preview-image {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
 #image-info {
     background-color: #f8f9fa;
     padding: 15px;
