@@ -321,8 +321,13 @@ body {
 }
 
 #alert-modal .modal-dialog,
-#confirm-modal .modal-dialog {
+#confirm-modal .modal-dialog,
+#image-preview-modal .modal-dialog {
     z-index: 11001 !important;
+}
+
+#image-preview-modal {
+    z-index: 11002 !important;
 }
 
 /* 模态框覆盖层样式，用于实现渐变动画 */

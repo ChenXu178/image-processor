@@ -66,13 +66,20 @@ function customAlert(message, title = '提示') {
             if ($modal.find('.modal-overlay').length === 0) {
                 // 创建覆盖层，使用CSS类
                 const $overlay = $('<div>').addClass('modal-overlay');
-                $modal.find('.modal-dialog').append($overlay);
+                $modal.find('.modal-content').append($overlay);
                 // 延迟添加show类，触发过渡效果
                 setTimeout(function() {
                     $overlay.addClass('show');
                 }, 100);
             }
         });
+        
+        // 给处理进度模态框添加覆盖层
+        const $progressOverlay = $('#progress-overlay');
+        if ($progressOverlay.is(':visible') && $progressOverlay.find('.modal-overlay').length === 0) {
+            const $overlay = $('<div>').addClass('modal-overlay show');
+            $progressOverlay.find('.progress-content').append($overlay);
+        }
     });
     
     // 绑定关闭事件，移除覆盖层
@@ -104,13 +111,20 @@ function customConfirm(message, callback, title = '确认') {
             if ($modal.find('.modal-overlay').length === 0) {
                 // 创建覆盖层，使用CSS类
                 const $overlay = $('<div>').addClass('modal-overlay');
-                $modal.find('.modal-dialog').append($overlay);
+                $modal.find('.modal-content').append($overlay);
                 // 延迟添加show类，触发过渡效果
                 setTimeout(function() {
                     $overlay.addClass('show');
                 }, 100);
             }
         });
+        
+        // 给处理进度模态框添加覆盖层
+        const $progressOverlay = $('#progress-overlay');
+        if ($progressOverlay.is(':visible') && $progressOverlay.find('.modal-overlay').length === 0) {
+            const $overlay = $('<div>').addClass('modal-overlay show');
+            $progressOverlay.find('.progress-content').append($overlay);
+        }
     });
     
     // 绑定关闭事件，移除覆盖层
@@ -344,22 +358,174 @@ $(document).ready(function() {
         updateButtons();
     });
     
-    // 统计文件格式按钮
-    $('#count-formats-btn').on('click', function() {
-        if (selectedFiles.length === 0) {
-            customAlert('请先选择文件或文件夹');
+    // 搜索文件按钮
+    $('#search-btn').on('click', function() {
+        // 显示搜索模态框
+        $('#search-modal').modal('show');
+    });
+    
+    // 开始搜索按钮
+    $('#start-search-btn').on('click', function() {
+        const pattern = $('#search-pattern').val();
+        if (!pattern) {
+            customAlert('请输入搜索模式');
             return;
         }
         
         // 显示加载动画
         $('#loading').show();
         
+        // 如果未选中文件，使用当前路径作为搜索路径
+        const searchPaths = selectedFiles.length > 0 ? selectedFiles : [currentPath];
+        
+        // 发送搜索请求
+        $.ajax({
+            url: '/search_files',
+            type: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                selected_paths: searchPaths,
+                pattern: pattern,
+                is_regex: $('#search-regex').is(':checked'),
+                case_sensitive: $('#search-case-sensitive').is(':checked')
+            }),
+            success: function(response) {
+                $('#loading').hide();
+                
+                // 生成搜索结果HTML
+                let resultHtml = '<h3>搜索结果</h3>';
+                resultHtml += '<div class="mb-3">';
+                resultHtml += '<p><strong>匹配文件数:</strong> <span id="search-result-count">' + response.files.length + '</span></p>';
+                resultHtml += '</div>';
+                
+                if (response.files.length > 0) {
+                    resultHtml += '<div class="pre-scrollable" style="max-height: 500px;">';
+                    resultHtml += '<div class="list-group">';
+                    
+                    // 遍历搜索结果生成列表项
+                    for (const file of response.files) {
+                        const isImage = supportedFormats.includes(file.ext.toLowerCase());
+                        const previewBtn = isImage ? '<button class="btn btn-info btn-sm preview-btn ml-1" data-path="' + file.path + '" title="预览">预览</button>' : '';
+                        
+                        resultHtml += '<div class="list-group-item list-group-item-action">';
+                        resultHtml += '<div class="d-flex justify-content-between align-items-center">';
+
+                        resultHtml += '<div style="flex: 1; min-width: 0;">';
+                        resultHtml += '<strong>' + file.name + '</strong>';
+                        resultHtml += '<br>';
+                        resultHtml += '<small class="text-muted" style="word-break: break-all; word-wrap: break-word; max-width: 95%; display: inline-block;">' + file.path + '</small>';
+
+                        resultHtml += '<br>';
+                        resultHtml += '<small class="text-muted">大小: ' + formatFileSize(file.size) + ' | 类型: ' + file.ext + '</small>';
+                        resultHtml += '</div>';
+                        resultHtml += '<div class="btn-group" style="flex-shrink: 0;">';
+
+                        resultHtml += '<button class="btn btn-primary btn-sm jump-btn" data-path="' + file.path + '" title="跳转">跳转</button>';
+                        resultHtml += '<button class="btn btn-danger btn-sm delete-btn" data-path="' + file.path + '" title="删除">删除</button>';
+                        resultHtml += previewBtn;
+                        resultHtml += '</div>';
+                        resultHtml += '</div>';
+                        resultHtml += '</div>';
+                    }
+                    
+                    resultHtml += '</div>';
+                    resultHtml += '</div>';
+                } else {
+                    resultHtml += '<div class="alert alert-info">未找到匹配的文件</div>';
+                }
+                
+                // 更新搜索结果
+                $('#search-results').html(resultHtml);
+                
+                // 为跳转按钮添加点击事件
+                $('.jump-btn').on('click', function() {
+                    const path = $(this).data('path');
+                    // 获取文件所在目录
+                    const lastSepIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+                    const dirPath = path.substring(0, lastSepIndex);
+                    // 跳转到该目录
+                    currentPath = dirPath;
+                    // 更新当前路径显示
+                    $('#current-path').text(currentPath);
+                    // 加载文件列表
+                    loadFiles();
+                    // 关闭搜索模态框
+                    $('#search-modal').modal('hide');
+                });
+                
+                // 为删除按钮添加点击事件
+                $('.delete-btn').on('click', function() {
+                    const $btn = $(this);
+                    const path = $btn.data('path');
+                    const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+                    
+                    // 显示确认对话框
+                    customConfirm(`确定要删除文件 "${filename}" 吗？此操作不可恢复！`, function(confirmed) {
+                        if (confirmed) {
+                            // 显示加载动画
+                            $('#loading').show();
+                            
+                            // 发送删除请求
+                            $.ajax({
+                                url: '/delete_file',
+                                type: 'POST',
+                                contentType: 'application/json',
+                                data: JSON.stringify({ path: path }),
+                                success: function(response) {
+                                    $('#loading').hide();
+                                    customAlert(`成功删除文件 "${filename}"`);
+                                    // 刷新文件列表
+                                    loadFiles();
+                                    // 隐藏被删除的文件行
+                                    $btn.closest('.list-group-item').hide();
+                                    // 更新搜索结果匹配文件数
+                                    const currentCount = parseInt($('#search-result-count').text());
+                                    if (currentCount > 0) {
+                                        const newCount = currentCount - 1;
+                                        $('#search-result-count').text(newCount);
+                                        // 如果匹配文件数变为0，更新搜索结果显示
+                                        if (newCount === 0) {
+                                            $('#search-results').html('<h3>搜索结果</h3><div class="mb-3"><p><strong>匹配文件数:</strong> <span id="search-result-count">0</span></p></div><div class="alert alert-info">未找到匹配的文件</div>');
+                                        }
+                                    }
+                                },
+                                error: function(xhr, status, error) {
+                                    $('#loading').hide();
+                                    customAlert('删除失败: ' + error, '错误', 'error');
+                                }
+                            });
+                        }
+                    });
+                });
+                
+                // 为预览按钮添加点击事件
+                $('.preview-btn').on('click', function() {
+                    const path = $(this).data('path');
+                    // 调用预览图片函数
+                    previewImage(path);
+                });
+            },
+            error: function(xhr, status, error) {
+                $('#loading').hide();
+                customAlert('搜索失败: ' + error, '错误', 'error');
+            }
+        });
+    });
+    
+    // 统计文件格式按钮
+    $('#count-formats-btn').on('click', function() {
+        // 显示加载动画
+        $('#loading').show();
+        
+        // 如果未选中文件，使用当前路径作为统计路径
+        const countPaths = selectedFiles.length > 0 ? selectedFiles : [currentPath];
+        
         // 发送请求统计文件格式
         $.ajax({
             url: '/count_formats',
             type: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({ selected_paths: selectedFiles }),
+            data: JSON.stringify({ selected_paths: countPaths }),
             success: function(response) {
                 $('#loading').hide();
                 
@@ -650,10 +816,28 @@ $(document).ready(function() {
     });
     
     // 图片转换按钮
-    $('#convert-btn').on('click', function() {
-        // 显示转换配置模态框
-        $('#convert-modal').modal('show');
-    });
+            $('#convert-btn').on('click', function() {
+                // 显示转换配置模态框
+                $('#convert-modal').modal('show');
+                
+                // 检查当前选中的目标格式，显示或隐藏跳过PDF复选框
+                const targetFormat = $('#target-format').val();
+                if (targetFormat !== 'jpg') {
+                    $('#skip-pdf-container').show();
+                } else {
+                    $('#skip-pdf-container').hide();
+                }
+            });
+            
+            // 监听目标格式变化，显示或隐藏跳过PDF复选框
+            $('#target-format').on('change', function() {
+                const targetFormat = $(this).val();
+                if (targetFormat !== 'jpg') {
+                    $('#skip-pdf-container').show();
+                } else {
+                    $('#skip-pdf-container').hide();
+                }
+            });
     
     // 开始压缩按钮
     $('#start-compress-btn').on('click', function() {
@@ -724,7 +908,7 @@ $(document).ready(function() {
                 $('#progress-overlay').hide();
                 // 设置处理标志位为false
                 isProcessing = false;
-                alert('压缩失败: ' + error);
+                customAlert('压缩失败: ' + error, '错误');
             }
         });
     });
@@ -732,7 +916,7 @@ $(document).ready(function() {
     // 开始转换按钮
     $('#start-convert-btn').on('click', function() {
         if (selectedFiles.length === 0) {
-            alert('请先选择文件或文件夹');
+            customAlert('请先选择文件或文件夹');
             return;
         }
         
@@ -740,6 +924,7 @@ $(document).ready(function() {
         const targetFormat = $('#target-format').val();
         const quality = parseInt($('#convert-quality').val());
         const maxWorkers = parseInt($('#convert-thread-count').val());
+        const skipPdf = $('#skip-pdf-checkbox').is(':checked');
         
         // 隐藏配置模态框
         $('#convert-modal').modal('hide');
@@ -765,7 +950,8 @@ $(document).ready(function() {
                 selected_paths: selectedFiles,
                 target_format: targetFormat,
                 quality: quality,
-                max_workers: maxWorkers
+                max_workers: maxWorkers,
+                skip_pdf: skipPdf
             }),
             success: function(response) {
                 // 清空已选择列表
@@ -805,7 +991,7 @@ $(document).ready(function() {
                 } else {
                     errorMessage += error;
                 }
-                alert(errorMessage);
+                customAlert(errorMessage, '错误');
             }
         });
     });
@@ -817,35 +1003,37 @@ $(document).ready(function() {
             return;
         }
         
-        if (confirm('确定要停止当前处理吗？已开始处理的图片会继续完成，未开始的图片将被取消。')) {
-            // 设置停止请求标记
-            isStopping = true;
-            
-            // 将按钮置灰，不允许再次点击
-            $(this).prop('disabled', true).text('停止中...');
-            
-            // 发送停止请求
-            $.ajax({
-                url: '/stop_processing',
-                type: 'POST',
-                success: function(response) {
-                    log('info', '停止处理请求已发送');
-                    // 重置停止请求标记
-                    isStopping = false;
-                    // 停止请求成功后，保持停止按钮显示，但禁用并修改文本
-                    $('#stop-progress').prop('disabled', true).text('已停止');
-                    // 不要立即显示关闭按钮，等待处理完成后由updateProgress自动处理
-                },
-                error: function(xhr, status, error) {
-                    log('error', '发送停止请求失败', error);
-                    // 重置停止请求标记
-                    isStopping = false;
-                    // 恢复按钮状态
-                    $('#stop-progress').prop('disabled', false).text('停止处理');
-                    alert('停止请求失败: ' + error);
-                }
-            });
-        }
+        customConfirm('确定要停止当前处理吗？已开始处理的图片会继续完成，未开始的图片将被取消。', function(confirmed) {
+            if (confirmed) {
+                // 设置停止请求标记
+                isStopping = true;
+                
+                // 将按钮置灰，不允许再次点击
+                $(this).prop('disabled', true).text('停止中...');
+                
+                // 发送停止请求
+                $.ajax({
+                    url: '/stop_processing',
+                    type: 'POST',
+                    success: function(response) {
+                        log('info', '停止处理请求已发送');
+                        // 重置停止请求标记
+                        isStopping = false;
+                        // 停止请求成功后，保持停止按钮显示，但禁用并修改文本
+                        $('#stop-progress').prop('disabled', true).text('已停止');
+                        // 不要立即显示关闭按钮，等待处理完成后由updateProgress自动处理
+                    },
+                    error: function(xhr, status, error) {
+                        log('error', '发送停止请求失败', error);
+                        // 重置停止请求标记
+                        isStopping = false;
+                        // 恢复按钮状态
+                        $('#stop-progress').prop('disabled', false).text('停止处理');
+                        customAlert('停止请求失败: ' + error, '错误');
+                    }
+                });
+            }
+        });
     });
     
     // 关闭进度按钮
@@ -1011,7 +1199,7 @@ function loadFiles(autoEnter = true, fromHistory = false) {
         },
         error: function(xhr, status, error) {
             log('error', '文件列表加载失败', error);
-            alert('加载文件失败: ' + error);
+            customAlert('加载文件失败: ' + error, '错误');
         }
     });
 }
@@ -1474,7 +1662,7 @@ function previewImage(path) {
                                 // 隐藏查询按钮
                                 button.hide();
                             } else {
-                                alert('无法查询到地址');
+                                customAlert('无法查询到地址');
                             }
                         },
                         error: function(xhr, status, error) {
@@ -1484,7 +1672,7 @@ function previewImage(path) {
                                 errorMsg = '查询地址失败: ' + xhr.responseJSON.error;
                                 log('error', '查询地址详细错误:', xhr.responseJSON.error);
                             }
-                            alert(errorMsg);
+                            customAlert(errorMsg, '错误');
                         },
                         complete: function() {
                             // 恢复按钮状态
@@ -1503,16 +1691,35 @@ function previewImage(path) {
             // 显示模态框
             $('#image-preview-modal').modal('show');
             
+            // 为其他已打开的模态框添加覆盖层
+            $('.modal.show').not('#image-preview-modal').not('#alert-modal').not('#confirm-modal').each(function() {
+                const $modal = $(this);
+                // 检查是否已经有覆盖层
+                if ($modal.find('.modal-overlay').length === 0) {
+                    // 创建覆盖层，使用CSS类，并直接添加show类
+                    const $overlay = $('<div>').addClass('modal-overlay show');
+                    $modal.find('.modal-content').append($overlay);
+                }
+            });
+            
             // 确保事件只被绑定一次，使用one方法绑定一次性事件
             $('#image-preview-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
                 isModalPreviewOpen = false;
+                
+                // 预览模态框关闭时，移除所有覆盖层
+                // 先移除show类，触发过渡效果
+                $('.modal-overlay').removeClass('show');
+                // 延迟移除元素，等待过渡效果完成
+                setTimeout(function() {
+                    $('.modal-overlay').remove();
+                }, 150);
             });
             
             // 清除加载标志
             isModalPreviewLoading = false;
         },
         error: function(xhr, status, error) {
-            alert('预览图片失败: ' + error);
+            customAlert('预览图片失败: ' + error, '错误');
             // 清除加载标志
             isModalPreviewLoading = false;
         }
@@ -1670,8 +1877,7 @@ function updateProgress() {
                     $('#failed-files-count').text(failedCount);
                     let failedHtml = '';
                     for (const file of failedFiles) {
-                        const truncated = truncatePath(file, 100);
-                        failedHtml += `<div style="margin: 5px 0; padding: 5px; background-color: rgba(220, 53, 69, 0.8); color: white; border-radius: 4px;">${truncated}</div>`;
+                        failedHtml += `<div style="padding: 8px 0; border-bottom: 1px solid #e9ecef; word-break: break-all; word-wrap: break-word;">${file}</div>`;
                     }
                     $('#failed-files').html(failedHtml);
                 } else {
@@ -1687,8 +1893,7 @@ function updateProgress() {
                     $('#skipped-files-count').text(skippedCount);
                     let skippedHtml = '';
                     for (const file of skippedFiles) {
-                        const truncated = truncatePath(file, 100);
-                        skippedHtml += `<div style="margin: 5px 0; padding: 5px; background-color: rgba(255, 193, 7, 0.8); color: black; border-radius: 4px;">${truncated}</div>`;
+                        skippedHtml += `<div style="padding: 8px 0; border-bottom: 1px solid #e9ecef; word-break: break-all; word-wrap: break-word;">${file}</div>`;
                     }
                     $('#skipped-files').html(skippedHtml);
                 } else {

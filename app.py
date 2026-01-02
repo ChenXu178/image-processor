@@ -699,8 +699,66 @@ def preview_image():
             logger.error(f"获取PDF文件信息失败: {e}")
             return jsonify({'error': str(e)}), 500
     
+    # 处理AVIF格式文件（使用ImageMagick获取信息）
+    if ext == 'avif':
+        try:
+            size = get_file_size(path)
+            logger.info(f"成功获取AVIF文件大小: AVIF, {size} bytes")
+            
+            # 使用ImageMagick获取AVIF图片宽高
+            try:
+                # 构建命令
+                if platform.system() == 'Windows':
+                    cmd = ['magick', 'identify', '-format', '%w %h', path]
+                else:
+                    # 先尝试magick命令（ImageMagick 7+）
+                    try:
+                        subprocess.run(['magick', '--version'], capture_output=True, text=True, timeout=5)
+                        cmd = ['magick', 'identify', '-format', '%w %h', path]
+                    except:
+                        # ImageMagick 6使用identify命令
+                        cmd = ['identify', '-format', '%w %h', path]
+                
+                # 执行命令
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                logger.debug(f"ImageMagick identify命令输出: {result.stdout}")
+                
+                if result.returncode == 0:
+                    # 解析输出，格式为 "width height"
+                    output = result.stdout.strip()
+                    if output:
+                        parts = output.split()
+                        if len(parts) == 2:
+                            width = int(parts[0])
+                            height = int(parts[1])
+                            logger.info(f"成功使用ImageMagick获取AVIF图片信息: AVIF, {width}x{height}, {size} bytes")
+                            return jsonify({
+                                'path': path,
+                                'width': width,
+                                'height': height,
+                                'format': 'AVIF',
+                                'size': size
+                            })
+            except Exception as magick_error:
+                logger.warning(f"使用ImageMagick获取AVIF图片宽高失败: {magick_error}")
+                # 如果获取宽高失败，返回基本信息
+                logger.info(f"返回AVIF文件基本信息: AVIF, {size} bytes")
+                return jsonify({
+                    'path': path,
+                    'width': 0,  # AVIF文件无法获取宽高
+                    'height': 0,  # AVIF文件无法获取宽高
+                    'format': 'AVIF',
+                    'size': size
+                })
+        except Exception as e:
+            logger.error(f"获取AVIF文件信息失败: {e}")
+            return jsonify({'error': str(e)}), 500
+    
     # 获取图片信息
     try:
+        # 尝试打开图片，如果是截断的图片，使用ImageFile.LOAD_TRUNCATED_IMAGES选项
+        from PIL import ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
         with Image.open(path) as img:
             width, height = img.size
             format = img.format
@@ -1005,7 +1063,53 @@ def preview_file(filepath):
     logger.debug(f"文件存在: {os.path.exists(full_path)}")
     logger.debug(f"文件大小: {os.path.getsize(full_path)} bytes")
     logger.debug(f"文件类型: {mimetypes.guess_type(full_path)[0]}")
+    
+    # 处理AVIF格式文件（只使用ImageMagick获取宽高，不转换）
+    if ext == 'avif':
+        try:
+            # 使用ImageMagick获取AVIF图片宽高信息
+            logger.info(f"开始使用ImageMagick获取AVIF宽高: {full_path}")
+            
+            # 构建命令
+            if platform.system() == 'Windows':
+                magick_cmd = 'magick'
+            else:
+                # 先尝试magick命令（ImageMagick 7+）
+                try:
+                    subprocess.run(['magick', '--version'], capture_output=True, text=True, timeout=5)
+                    magick_cmd = 'magick'
+                except:
+                    # ImageMagick 6使用convert命令
+                    magick_cmd = 'convert'
+            
+            # 获取图片宽高
+            identify_cmd = [magick_cmd, 'identify', '-format', '%w %h', full_path]
+            result = subprocess.run(identify_cmd, capture_output=True, text=True, timeout=10)
+            
+            width = 0
+            height = 0
+            if result.returncode == 0:
+                output = result.stdout.strip()
+                if output:
+                    parts = output.split()
+                    if len(parts) == 2:
+                        width = int(parts[0])
+                        height = int(parts[1])
+            
+            logger.info(f"成功获取AVIF图片宽高: {width}x{height}")
+            
+            # 直接返回原始AVIF文件，不进行转换
+            response = send_file(full_path)
+            logger.debug(f"send_file返回成功，响应头: {dict(response.headers)}")
+            return response
+        except Exception as e:
+            logger.error(f"处理AVIF文件失败: {type(e).__name__}: {str(e)}")
+            return f'Image preview failed: {str(e)}', 500
+    
     try:
+        # 尝试打开图片，如果是截断的图片，使用ImageFile.LOAD_TRUNCATED_IMAGES选项
+        from PIL import ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
         # 打开图片，检查分辨率
         with Image.open(full_path) as img:
             width, height = img.size
@@ -1091,6 +1195,9 @@ def convert_tiff_preview():
         return 'Only TIFF files are supported for preview conversion', 400
     
     try:
+        # 尝试打开图片，如果是截断的图片，使用ImageFile.LOAD_TRUNCATED_IMAGES选项
+        from PIL import ImageFile
+        ImageFile.LOAD_TRUNCATED_IMAGES = True
         # 打开TIFF图片并转换为PNG
         logger.info(f"开始转换TIFF图片: {full_path}")
         
@@ -1292,6 +1399,120 @@ def fix_extensions():
     except Exception as e:
         logger.error(f"修复文件后缀失败: {e}")
         return jsonify({'error': '修复文件后缀失败: {e}'}), 500
+
+@app.route('/search_files', methods=['POST'])
+def search_files():
+    """
+    搜索文件
+    请求方法: POST
+    请求参数: selected_paths - 要搜索的文件或文件夹路径列表，pattern - 搜索模式，is_regex - 是否使用正则表达式，case_sensitive - 是否区分大小写
+    返回: JSON格式的结果，包括匹配的文件列表
+    """
+    selected_paths = request.json.get('selected_paths', [])
+    pattern = request.json.get('pattern', '')
+    is_regex = request.json.get('is_regex', False)
+    case_sensitive = request.json.get('case_sensitive', False)
+    logger.info(f"开始搜索文件，选中路径: {selected_paths}，模式: {pattern}，正则: {is_regex}，区分大小写: {case_sensitive}")
+    
+    if not selected_paths:
+        logger.warning("未选中任何文件或文件夹")
+        return jsonify({'error': '未选中任何文件或文件夹'}), 400
+    
+    if not pattern:
+        logger.warning("未指定搜索模式")
+        return jsonify({'error': '未指定搜索模式'}), 400
+    
+    import re
+    
+    # 编译正则表达式
+    try:
+        if is_regex:
+            flags = 0 if case_sensitive else re.IGNORECASE
+            regex = re.compile(pattern, flags)
+        else:
+            # 普通搜索，转义正则表达式特殊字符
+            escaped_pattern = re.escape(pattern)
+            flags = 0 if case_sensitive else re.IGNORECASE
+            regex = re.compile(escaped_pattern, flags)
+    except re.error as e:
+        logger.error(f"正则表达式错误: {e}")
+        return jsonify({'error': f'正则表达式错误: {e}'}), 400
+    
+    matched_files = []
+    
+    # 遍历所有选中的路径
+    for path in selected_paths:
+        if os.path.isdir(path):
+            # 遍历目录中的所有文件
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    # 检查文件名是否匹配
+                    if regex.search(file):
+                        try:
+                            # 获取文件大小
+                            size = os.path.getsize(file_path)
+                            # 获取文件扩展名
+                            ext = os.path.splitext(file)[1].lstrip('.') or 'unknown'
+                            matched_files.append({
+                                "name": file,
+                                "path": file_path,
+                                "size": size,
+                                "ext": ext
+                            })
+                        except Exception as e:
+                            logger.error(f"获取文件信息失败: {file_path}, 错误: {str(e)}")
+        elif os.path.isfile(path):
+            # 检查单个文件是否匹配
+            file = os.path.basename(path)
+            if regex.search(file):
+                try:
+                    # 获取文件大小
+                    size = os.path.getsize(path)
+                    # 获取文件扩展名
+                    ext = os.path.splitext(file)[1].lstrip('.') or 'unknown'
+                    matched_files.append({
+                        "name": file,
+                        "path": path,
+                        "size": size,
+                        "ext": ext
+                    })
+                except Exception as e:
+                    logger.error(f"获取文件信息失败: {path}, 错误: {str(e)}")
+    
+    logger.info(f"搜索完成，找到 {len(matched_files)} 个匹配文件")
+    return jsonify({"success": True, "files": matched_files})
+
+@app.route('/delete_file', methods=['POST'])
+def delete_file():
+    """
+    删除单个文件
+    请求方法: POST
+    请求参数: path - 要删除的文件路径
+    返回: JSON格式的结果，包括删除是否成功
+    """
+    file_path = request.json.get('path', '')
+    logger.info(f"开始删除单个文件: {file_path}")
+    
+    if not file_path:
+        logger.warning("未指定要删除的文件路径")
+        return jsonify({'error': '未指定要删除的文件路径'}), 400
+    
+    if not os.path.exists(file_path):
+        logger.warning(f"文件不存在: {file_path}")
+        return jsonify({'error': '文件不存在'}), 404
+    
+    if not os.path.isfile(file_path):
+        logger.warning(f"指定路径不是文件: {file_path}")
+        return jsonify({'error': '指定路径不是文件'}), 400
+    
+    try:
+        os.remove(file_path)
+        logger.info(f"已成功删除文件: {file_path}")
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"删除文件失败: {file_path}, 错误: {str(e)}")
+        return jsonify({'error': f'删除失败: {str(e)}'}), 500
 
 @app.route('/delete_files_by_format', methods=['POST'])
 def delete_files_by_format():
@@ -1571,8 +1792,9 @@ def convert_images():
     target_format = request.json.get('target_format', 'jpg')
     quality = request.json.get('quality', 99)
     max_workers = request.json.get('max_workers', 4)
+    skip_pdf = request.json.get('skip_pdf', False)
     
-    logger.info(f"开始转换图片格式，选中路径: {selected_paths}, 目标格式: {target_format}, 质量: {quality}, 最大线程数: {max_workers}")
+    logger.info(f"开始转换图片格式，选中路径: {selected_paths}, 目标格式: {target_format}, 质量: {quality}, 最大线程数: {max_workers}, 跳过PDF: {skip_pdf}")
     
     if not selected_paths:
         logger.warning("未选中任何文件或文件夹")
@@ -1598,8 +1820,11 @@ def convert_images():
                 break
     
     if has_pdf and target_format.lower() != 'jpg':
-        logger.warning(f"PDF文件只能转换为jpg格式，请求的格式: {target_format}")
-        return jsonify({'error': 'PDF文件只能转换为jpg格式'}), 400
+        if skip_pdf:
+            logger.info(f"检测到PDF文件，目标格式不是jpg，已选择跳过PDF文件处理")
+        else:
+            logger.warning(f"PDF文件只能转换为jpg格式，请求的格式: {target_format}")
+            return jsonify({'error': 'PDF文件只能转换为jpg格式'}), 400
     
     # 重置进度
     with progress_lock:
@@ -1637,10 +1862,22 @@ def convert_images():
             
             logger.info(f"获取目录中的图片，排除目标格式: {normalized_target}, 路径: {path}")
             filtered_images = get_all_images(path, exclude_formats=exclude_formats)
+            
+            # 如果需要跳过PDF文件，过滤掉PDF文件
+            if skip_pdf:
+                filtered_images = [f for f in filtered_images if not f.lower().endswith('.pdf')]
+                
+                # 更新skipped_files列表，添加被跳过的PDF文件
+                pdf_files = [f for f in all_files if f.lower().endswith('.pdf')]
+                with progress_lock:
+                    for f in pdf_files:
+                        progress_data['skipped_files'].append(f)
+                        progress_data['processed'] += 1
+            
             all_images.extend(filtered_images)
             
             # 将被跳过的文件添加到skipped_files列表
-            skipped_files = [f for f in all_files if f not in filtered_images]
+            skipped_files = [f for f in all_files if f not in filtered_images and not (skip_pdf and f.lower().endswith('.pdf'))]
             with progress_lock:
                 for f in skipped_files:
                     progress_data['skipped_files'].append(f)
@@ -1652,7 +1889,13 @@ def convert_images():
             # 规范化当前文件格式
             normalized_ext = 'jpg' if ext == 'jpeg' else ext
             
-            if normalized_ext != normalized_target:
+            # 如果是PDF文件且需要跳过，添加到skipped_files列表
+            if skip_pdf and path.lower().endswith('.pdf'):
+                logger.info(f"跳过PDF文件: {path}")
+                with progress_lock:
+                    progress_data['skipped_files'].append(path)
+                    progress_data['processed'] += 1
+            elif normalized_ext != normalized_target:
                 logger.info(f"添加图片: {path}, 当前格式: {ext}, 目标格式: {normalized_target}")
                 all_images.append(path)
             else:
