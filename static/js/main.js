@@ -462,6 +462,12 @@ $(document).ready(function() {
                 // 调试信息：显示模态框调用
                 console.log('显示修复结果模态框');
                 
+                // 清空已选择列表
+                selectedFiles = [];
+                // 更新已选择文件列表显示
+                updateSelectedFilesList();
+                // 更新按钮状态
+                updateButtons();
                 // 刷新文件列表
                 loadFiles();
             },
