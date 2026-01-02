@@ -35,8 +35,60 @@ let isStopping = false;
 let isModalPreviewLoading = false;
 // 鼠标悬停预览
 let hoverTimeout = null;
+// 保存每个目录的滚动位置
+let scrollPositions = {};
+// 文件列表元素
+let fileListElement = null;
+// 目录历史记录
+let history = [];
+// 当前历史记录索引
+let historyIndex = -1;
+// 历史记录最大长度
+const MAX_HISTORY_LENGTH = 20;
 
 $(document).ready(function() {
+    // 初始化文件列表元素
+    fileListElement = $('#file-list');
+    
+    // 添加滚动事件监听器，保存滚动位置
+    fileListElement.on('scroll', function() {
+        // 保存当前目录的滚动位置
+        scrollPositions[currentPath] = $(this).scrollTop();
+    });
+    
+    // 添加全局鼠标事件监听，捕获所有鼠标事件
+    // 使用mousedown事件监听鼠标侧键，这是最可靠的方式
+    $(document).on('mousedown', function(e) {
+        // 鼠标侧键通常会产生button值为3（后退）和4（前进）
+        // 检查是否是侧键事件
+        if (e.originalEvent.button === 3) {
+            // 后退键 (Mouse4)
+            e.preventDefault();
+            log('info', '鼠标侧键后退 (mousedown)');
+            $('#back-btn').click();
+        } else if (e.originalEvent.button === 4) {
+            // 前进键 (Mouse5)
+            e.preventDefault();
+            log('info', '鼠标侧键前进 (mousedown)');
+            goForward();
+        }
+    });
+    
+    // 添加全局mouseup事件监听，确保所有侧键事件都能被捕获
+    $(document).on('mouseup', function(e) {
+        // 鼠标侧键通常会产生button值为3（后退）和4（前进）
+        // 检查是否是侧键事件
+        if (e.originalEvent.button === 3) {
+            // 后退键 (Mouse4)
+            e.preventDefault();
+            log('info', '鼠标侧键后退 (mouseup)');
+        } else if (e.originalEvent.button === 4) {
+            // 前进键 (Mouse5)
+            e.preventDefault();
+            log('info', '鼠标侧键前进 (mouseup)');
+        }
+    });
+    
     // 加载配置信息
     loadConfig();
     
@@ -77,6 +129,7 @@ $(document).ready(function() {
     
     // 返回上级按钮
     $('#back-btn').on('click', function() {
+        log('info', '返回上级按钮点击，当前路径: ' + currentPath + ', 基础目录: ' + baseDir);
         if (currentPath !== baseDir) {
             // 同时处理Windows和Unix路径分隔符
             const lastSeparatorIndex = Math.max(
@@ -85,15 +138,62 @@ $(document).ready(function() {
             );
             if (lastSeparatorIndex > 0) {
                 const parentPath = currentPath.substring(0, lastSeparatorIndex);
+                log('info', '当前路径: ' + currentPath + ', 父路径: ' + parentPath);
+                
+                // 检查当前索引是否大于0
+                if (historyIndex > 0) {
+                    // 如果有前进历史记录，直接减少索引
+                    historyIndex--;
+                    log('info', '历史记录索引减少: ' + historyIndex);
+                } else {
+                    // 如果当前是第一个记录，保持索引为0
+                    log('info', '历史记录索引保持为0');
+                }
+                
+                // 设置当前路径为父路径
                 currentPath = parentPath;
+                
+                // 立即更新当前路径显示
+                $('#current-path').text(currentPath);
             } else {
                 // 如果已经是根目录，保持不变
                 currentPath = baseDir;
+                historyIndex = 0;
             }
-            // 回到上级目录时不自动进入子文件夹
-            loadFiles(false);
+            // 回到上级目录时不自动进入子文件夹，并且从历史记录加载
+            log('info', '加载父路径: ' + currentPath + ', fromHistory: true, 新索引: ' + historyIndex);
+            loadFiles(false, true);
+        } else {
+            log('info', '已经是根目录，无法返回上级');
         }
     });
+    
+    // 前进功能
+    function goForward() {
+        log('info', '前进功能调用，当前历史记录: ' + JSON.stringify(history) + ', 长度: ' + history.length + ', 当前索引: ' + historyIndex);
+        // 检查历史记录长度和当前索引
+        if (history.length === 0) {
+            log('info', '历史记录为空');
+            return;
+        }
+        
+        if (historyIndex < history.length - 1) {
+            // 如果有前进历史记录
+            historyIndex++;
+            // 获取前进路径
+            const forwardPath = history[historyIndex];
+            log('info', '前进到: ' + forwardPath + ', 新索引: ' + historyIndex);
+            // 设置当前路径
+            currentPath = forwardPath;
+            // 立即更新当前路径显示
+            $('#current-path').text(currentPath);
+            // 加载文件列表，不自动进入子文件夹
+            loadFiles(false, true);
+        } else {
+            log('info', '没有前进历史记录，当前已经是最新记录');
+            log('info', '历史记录详情: 索引范围 0-' + (history.length - 1) + ', 当前索引: ' + historyIndex);
+        }
+    }
     
     // 全选按钮 - 选中当前路径下所有图片
     $('#select-all-btn').on('click', function() {
@@ -479,9 +579,18 @@ $(document).ready(function() {
  * 向服务器发送请求，获取指定路径下的文件列表
  * 然后生成HTML并显示在页面上
  * @param {boolean} autoEnter - 是否自动进入子文件夹，默认为true
+ * @param {boolean} fromHistory - 是否从历史记录加载，默认为false
  */
-function loadFiles(autoEnter = true) {
-    log('info', '开始加载文件列表，路径: ' + currentPath + ', autoEnter: ' + autoEnter);
+function loadFiles(autoEnter = true, fromHistory = false) {
+    log('info', '开始加载文件列表，路径: ' + currentPath + ', autoEnter: ' + autoEnter + ', fromHistory: ' + fromHistory);
+    // 立即清除悬浮预览的延迟
+    if (hoverTimeout) {
+        clearTimeout(hoverTimeout);
+        hoverTimeout = null;
+    }
+
+    // 关闭当前可能显示的悬浮预览
+    hideHoverPreview();
     
     $.ajax({
         url: '/get_files',
@@ -495,6 +604,39 @@ function loadFiles(autoEnter = true) {
             
             currentPath = response.current_path;
             $('#current-path').text(currentPath);
+            
+            // 更新历史记录
+            if (!fromHistory) {
+                // 如果不是从历史记录加载，更新历史记录
+                log('info', '更新历史记录前 - 当前索引: ' + historyIndex + ', 历史记录长度: ' + history.length);
+                
+                // 检查当前路径是否已经是历史记录的最后一个元素
+                if (history.length === 0 || history[history.length - 1] !== currentPath) {
+                    // 如果当前路径不在历史记录中或不是最新记录
+                    // 检查当前索引是否是历史记录的最后一个索引
+                    if (historyIndex < history.length - 1) {
+                        // 如果当前不是最新历史记录，删除当前索引之后的所有历史记录
+                        log('info', '进入新目录分支，删除多余历史记录');
+                        history = history.slice(0, historyIndex + 1);
+                        log('info', '历史记录裁剪后: ' + JSON.stringify(history));
+                    }
+                    
+                    // 添加当前路径到历史记录
+                    history.push(currentPath);
+                    // 更新历史记录索引
+                    historyIndex = history.length - 1;
+                    
+                    // 检查历史记录长度，如果超过最大长度，删除最旧的记录
+                    if (history.length > MAX_HISTORY_LENGTH) {
+                        log('info', '历史记录超过最大长度，删除最旧记录');
+                        history.shift(); // 删除第一个元素
+                        historyIndex--;
+                        log('info', '历史记录裁剪后: ' + JSON.stringify(history));
+                    }
+                    
+                    log('info', '历史记录更新: ' + JSON.stringify(history) + ', 当前索引: ' + historyIndex);
+                }
+            }
             
             // 生成文件列表HTML
             let fileListHtml = '';
@@ -548,6 +690,13 @@ function loadFiles(autoEnter = true) {
             
             // 绑定文件列表事件
             bindFileListEvents();
+            
+            // 恢复滚动位置
+            setTimeout(function() {
+                const savedScroll = scrollPositions[currentPath] || 0;
+                log('debug', '恢复滚动位置: ' + savedScroll + ' for path: ' + currentPath);
+                fileListElement.scrollTop(savedScroll);
+            }, 0);
         },
         error: function(xhr, status, error) {
             log('error', '文件列表加载失败', error);
@@ -574,11 +723,13 @@ function bindFileListEvents() {
         if (!e.target.classList.contains('checkbox')) {
             if (type === 'dir') {
                 // 进入文件夹
-                currentPath = path;
-                // 如果是返回上级目录(..)，不自动进入子文件夹
+                log('info', '点击文件夹: ' + filename + ', 路径: ' + path);
                 if (filename === '..') {
-                    loadFiles(false);
+                    // 如果是返回上级目录(..)，使用返回上级功能
+                    $('#back-btn').click();
                 } else {
+                    // 进入新文件夹，历史记录管理由loadFiles函数处理
+                    currentPath = path;
                     loadFiles(true);
                 }
             } else {
@@ -640,10 +791,10 @@ function bindFileListEvents() {
                 return; // PDF文件不进行预览
             }
             
-            // 1秒后显示预览，传递鼠标位置
+            // 1.5秒后显示预览，传递鼠标位置
             hoverTimeout = setTimeout(function() {
                 showHoverPreview(path, mouseX, mouseY);
-            }, 1000);
+            }, 1500);
         }
     });
     
@@ -1304,6 +1455,11 @@ function loadConfig() {
             baseDir = response.base_dir;
             // 设置当前路径为baseDir
             currentPath = baseDir;
+            
+            // 初始化历史记录，添加基础目录到历史记录
+            history = [baseDir];
+            historyIndex = 0;
+            log('info', '历史记录初始化: ' + JSON.stringify(history) + ', 当前索引: ' + historyIndex);
             
             // 获取CPU核心数并更新线程数滑块
             const cpuCount = response.cpu_count || 4;
