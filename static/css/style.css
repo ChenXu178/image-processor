@@ -306,6 +306,67 @@ body {
     z-index: 1000;
 }
 
+/* 提高通用模态框的z-index，确保在进度弹窗之上 */
+.modal-backdrop.show {
+    z-index: 10999 !important;
+}
+
+.modal.show {
+    z-index: 11000 !important;
+}
+
+#alert-modal,
+#confirm-modal {
+    z-index: 11000 !important;
+}
+
+#alert-modal .modal-dialog,
+#confirm-modal .modal-dialog {
+    z-index: 11001 !important;
+}
+
+/* 模态框覆盖层样式，用于实现渐变动画 */
+.modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 11001;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.10s linear !important;
+}
+
+.modal-overlay.show {
+    opacity: 1;
+    transition: opacity 0.10s linear !important;
+}
+
+/* 进度弹窗中的文件列表样式 */
+.progress-overlay #failed-files-section h6 {
+    background-color: #dc3545 !important;
+    color: white !important;
+}
+
+.progress-overlay #skipped-files-section h6 {
+    background-color: #ffc107 !important;
+    color: black !important;
+}
+
+.progress-overlay .pre-scrollable {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    color: #fff !important;
+    text-align: left !important;
+}
+
+.progress-overlay .pre-scrollable div {
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    color: #fff !important;
+    text-align: left !important;
+}
+
 .loading-content {
     text-align: center;
 }
@@ -340,12 +401,60 @@ body {
     color: #155724;
     padding: 15px;
     border-radius: 4px;
-    margin-top: 20px;
+    margin-top: 0;
 }
 
+/* 统计结果表格容器 */
+.statistics-result .table-responsive {
+    max-height: 500px;
+    overflow-y: auto;
+    border-radius: 4px;
+    border: 1px solid #dee2e6;
+    background-color: #fff;
+}
+
+/* 统计结果表格 */
+.statistics-result table {
+    margin-bottom: 0;
+    border-collapse: collapse;
+    width: 100%;
+    background-color: #fff;
+}
+
+/* 固定表头 */
+.statistics-result table thead {
+    position: sticky;
+    top: 0;
+    background-color: #f8f9fa;
+    z-index: 10;
+}
+
+/* 表头单元格 */
+.statistics-result table th {
+    border-bottom: 2px solid #dee2e6;
+    border-top: 0;
+    padding: 8px;
+    text-align: left;
+    background-color: #f8f9fa;
+}
+
+/* 表格单元格 */
+.statistics-result table td {
+    border-bottom: 1px solid #dee2e6;
+    padding: 8px;
+    background-color: #fff;
+}
+
+/* 统计结果标题 */
 .statistics-result h3 {
+    margin-top: 0;
     margin-bottom: 15px;
     font-size: 18px;
+}
+
+/* 统计结果摘要信息 */
+.statistics-result .mb-3 {
+    margin-bottom: 15px !important;
 }
 
 .statistics-result .format-item {

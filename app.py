@@ -1917,6 +1917,67 @@ def download_file():
         logger.error(f"下载文件失败: {type(e).__name__}: {str(e)}")
         return f'Download failed: {str(e)}', 500
 
+@app.route('/clean_empty_folders', methods=['POST'])
+def clean_empty_folders():
+    """
+    清理空文件夹
+    请求方法: POST
+    请求参数: selected_paths - 要清理的文件或文件夹路径列表
+    返回: JSON格式的清理结果，包括删除的文件夹数量
+    说明: 从最里层开始删除空文件夹，支持嵌套空文件夹清理
+    """
+    selected_paths = request.json.get('selected_paths', [])
+    logger.info(f"开始清理空文件夹，选中路径: {selected_paths}")
+    
+    if not selected_paths:
+        logger.warning("未选中任何文件或文件夹")
+        return jsonify({'error': '未选中任何文件或文件夹'}), 400
+    
+    deleted_count = 0  # 删除的文件夹数量
+    
+    def clean_empty_dirs_recursive(directory):
+        """
+        递归清理空文件夹，从最里层开始
+        """
+        nonlocal deleted_count
+        
+        if not os.path.isdir(directory):
+            return False
+        
+        # 先清理所有子文件夹
+        subdirs = [os.path.join(directory, d) for d in os.listdir(directory) if os.path.isdir(os.path.join(directory, d))]
+        for subdir in subdirs:
+            clean_empty_dirs_recursive(subdir)
+        
+        # 检查当前文件夹是否为空
+        try:
+            files = os.listdir(directory)
+            if not files:  # 空文件夹
+                os.rmdir(directory)
+                logger.info(f"删除空文件夹: {directory}")
+                deleted_count += 1
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"检查或删除文件夹失败: {directory}, 错误: {e}")
+            return False
+    
+    try:
+        for path in selected_paths:
+            if os.path.isdir(path):
+                logger.info(f"清理目录下的空文件夹: {path}")
+                clean_empty_dirs_recursive(path)
+            elif os.path.isfile(path):
+                # 如果是文件，跳过
+                logger.info(f"跳过文件: {path}")
+                continue
+        
+        logger.info(f"清理空文件夹完成，共删除 {deleted_count} 个空文件夹")
+        return jsonify({'deleted_count': deleted_count})
+    except Exception as e:
+        logger.error(f"清理空文件夹失败: {e}")
+        return jsonify({'error': f'清理空文件夹失败: {e}'}), 500
+
 @app.route('/get_config')
 def get_config():
     """

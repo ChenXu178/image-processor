@@ -46,6 +46,106 @@ let historyIndex = -1;
 // 历史记录最大长度
 const MAX_HISTORY_LENGTH = 20;
 
+// 通用确认回调函数
+let confirmCallback = null;
+
+// 自定义alert函数
+function customAlert(message, title = '提示') {
+    $('#alert-modal-title').text(title);
+    $('#alert-modal-message').text(message);
+    
+    // 显示模态框
+    $('#alert-modal').modal('show');
+    
+    // 绑定模态框显示完成事件
+    $('#alert-modal').one('shown.bs.modal', function() {
+        // 给所有已打开的模态框添加覆盖层，包括统计模态框
+        $('.modal.show').not('#alert-modal').not('#confirm-modal').each(function() {
+            const $modal = $(this);
+            // 检查是否已经有覆盖层
+            if ($modal.find('.modal-overlay').length === 0) {
+                // 创建覆盖层，使用CSS类
+                const $overlay = $('<div>').addClass('modal-overlay');
+                $modal.find('.modal-dialog').append($overlay);
+                // 延迟添加show类，触发过渡效果
+                setTimeout(function() {
+                    $overlay.addClass('show');
+                }, 100);
+            }
+        });
+    });
+    
+    // 绑定关闭事件，移除覆盖层
+    $('#alert-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
+        // 先移除show类，触发过渡效果
+        $('.modal-overlay').removeClass('show');
+        // 延迟移除元素，等待过渡效果完成
+        setTimeout(function() {
+            $('.modal-overlay').remove();
+        }, 150);
+    });
+}
+
+// 自定义confirm函数
+function customConfirm(message, callback, title = '确认') {
+    $('#confirm-modal-title').text(title);
+    $('#confirm-modal-message').text(message);
+    confirmCallback = callback;
+    
+    // 显示模态框
+    $('#confirm-modal').modal('show');
+    
+    // 绑定模态框显示完成事件
+    $('#confirm-modal').one('shown.bs.modal', function() {
+        // 给所有已打开的模态框添加覆盖层
+        $('.modal.show').not('#alert-modal').not('#confirm-modal').each(function() {
+            const $modal = $(this);
+            // 检查是否已经有覆盖层
+            if ($modal.find('.modal-overlay').length === 0) {
+                // 创建覆盖层，使用CSS类
+                const $overlay = $('<div>').addClass('modal-overlay');
+                $modal.find('.modal-dialog').append($overlay);
+                // 延迟添加show类，触发过渡效果
+                setTimeout(function() {
+                    $overlay.addClass('show');
+                }, 100);
+            }
+        });
+    });
+    
+    // 绑定关闭事件，移除覆盖层
+    $('#confirm-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
+        // 先移除show类，触发过渡效果
+        $('.modal-overlay').removeClass('show');
+        // 延迟移除元素，等待过渡效果完成
+        setTimeout(function() {
+            $('.modal-overlay').remove();
+        }, 150);
+        
+        if (typeof confirmCallback === 'function') {
+            confirmCallback(false);
+            confirmCallback = null;
+        }
+    });
+}
+
+// 绑定确认模态框确定按钮事件
+$(document).on('click', '#confirm-modal-ok', function() {
+    $('#confirm-modal').modal('hide');
+    if (typeof confirmCallback === 'function') {
+        confirmCallback(true);
+        confirmCallback = null;
+    }
+});
+
+// 绑定确认模态框隐藏事件，处理取消情况
+$('#confirm-modal').on('hidden.bs.modal', function() {
+    if (typeof confirmCallback === 'function') {
+        confirmCallback(false);
+        confirmCallback = null;
+    }
+});
+
 $(document).ready(function() {
     // 初始化文件列表元素
     fileListElement = $('#file-list');
@@ -227,8 +327,8 @@ $(document).ready(function() {
         
         // 如果没有选中任何项目，可能是因为所有项目都是文件夹
         if (selectedCount === 0) {
-            alert('当前目录下没有可选中的文件');
-        }
+                customAlert('当前目录下没有可选中的文件');
+            }
     });
     
     // 取消全选按钮 - 清空右侧选中列表
@@ -247,7 +347,7 @@ $(document).ready(function() {
     // 统计文件格式按钮
     $('#count-formats-btn').on('click', function() {
         if (selectedFiles.length === 0) {
-            alert('请先选择文件或文件夹');
+            customAlert('请先选择文件或文件夹');
             return;
         }
         
@@ -282,7 +382,14 @@ $(document).ready(function() {
                 resultHtml += '</thead>';
                 resultHtml += '<tbody>';
                 
-                for (const [format, count] of Object.entries(response.format_count)) {
+                // 将文件格式按数量从大到小排序
+                const sortedFormats = Object.entries(response.format_count).sort((a, b) => {
+                    // 按数量降序排序
+                    return b[1] - a[1];
+                });
+                
+                // 遍历排序后的数组生成表格行
+                for (const [format, count] of sortedFormats) {
                     const size = response.format_size[format] || 0;
                     const avgSize = count > 0 ? size / count : 0;
                     resultHtml += '<tr>';
@@ -304,42 +411,58 @@ $(document).ready(function() {
                 
                 // 为删除按钮添加点击事件
                 $('.delete-format-btn').on('click', function() {
-                    const format = $(this).data('format');
+                    const $btn = $(this);
+                    const format = $btn.data('format');
                     const count = response.format_count[format];
                     
                     // 显示确认对话框
-                    if (confirm(`确定要删除所有${format.toUpperCase()}格式的文件吗？共${count}个文件将被删除，此操作不可恢复！`)) {
-                        // 显示加载动画
-                        $('#loading').show();
-                        
-                        // 发送删除请求
-                        $.ajax({
-                            url: '/delete_files_by_format',
-                            type: 'POST',
-                            contentType: 'application/json',
-                            data: JSON.stringify({
-                                selected_paths: selectedFiles,
-                                format: format
-                            }),
-                            success: function(response) {
-                                $('#loading').hide();
-                                alert(`成功删除${response.deleted_count}个${format.toUpperCase()}格式的文件`);
-                                // 刷新文件列表
-                                loadFiles();
-                                // 关闭统计模态框
-                                $('#statistics-modal').modal('hide');
-                            },
-                            error: function(xhr, status, error) {
-                                $('#loading').hide();
-                                alert('删除失败: ' + error);
-                            }
-                        });
-                    }
+                    customConfirm(`确定要删除所有${format.toUpperCase()}格式的文件吗？共${count}个文件将被删除，此操作不可恢复！`, function(confirmed) {
+                        if (confirmed) {
+                            // 显示加载动画
+                            $('#loading').show();
+                            
+                            // 发送删除请求
+                            $.ajax({
+                                url: '/delete_files_by_format',
+                                type: 'POST',
+                                contentType: 'application/json',
+                                data: JSON.stringify({
+                                    selected_paths: selectedFiles,
+                                    format: format
+                                }),
+                                success: function(response) {
+                                    $('#loading').hide();
+                                    customAlert(`成功删除${response.deleted_count}个${format.toUpperCase()}格式的文件`);
+                                    // 刷新文件列表
+                                    loadFiles();
+                                    // 隐藏被删除的文件类型行，不关闭模态框
+                                    $btn.closest('tr').hide();
+                                },
+                                error: function(xhr, status, error) {
+                                    $('#loading').hide();
+                                    customAlert('删除失败: ' + error, '错误');
+                                }
+                            });
+                        }
+                    });
+                });
+                
+                // 为统计结果模态框的关闭按钮添加点击事件
+                $('#statistics-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
+                    // 清空已选择列表
+                    selectedFiles = [];
+                    // 更新已选择文件列表显示
+                    updateSelectedFilesList();
+                    // 更新左侧文件列表中的所有复选框
+                    const checkboxes = $('.file-list-item .checkbox');
+                    checkboxes.prop('checked', false);
+                    // 更新按钮状态
+                    updateButtons();
                 });
             },
             error: function(xhr, status, error) {
                 $('#loading').hide();
-                alert('统计失败: ' + error);
+                customAlert('统计失败: ' + error, '错误');
             }
         });
     });
@@ -347,13 +470,14 @@ $(document).ready(function() {
     // 修复文件后缀按钮
     $('#fix-extensions-btn').on('click', function() {
         if (selectedFiles.length === 0) {
-            alert('请先选择文件或文件夹');
+            customAlert('请先选择文件或文件夹');
             return;
         }
         
-        if (!confirm('确定要修复选中路径下所有文件的后缀名吗？这将把所有大写后缀改为小写（例如PNG->png, Jpg->jpg），并将jpeg改为jpg。')) {
-            return;
-        }
+        customConfirm('确定要修复选中路径下所有文件的后缀名吗？这将把所有大写后缀改为小写（例如PNG->png, Jpg->jpg），并将jpeg改为jpg。', function(confirmed) {
+            if (!confirmed) {
+                return;
+            }
         
         // 显示加载动画
         $('#loading').show();
@@ -368,17 +492,12 @@ $(document).ready(function() {
                 $('#loading').hide();
                 
                 // 调试信息
-                console.log('修复结果响应:', response);
+                log('debug', '修复结果响应:', response);
                 
                 // 准备结果数据，确保是数组类型
                 const processed = response.processed || 0;
                 const skippedFiles = Array.isArray(response.skipped_files) ? response.skipped_files : [];
                 const failedFiles = Array.isArray(response.failed_files) ? response.failed_files : [];
-                
-                // 调试信息
-                console.log('处理的文件数:', processed);
-                console.log('跳过的文件数:', skippedFiles.length);
-                console.log('失败的文件数:', failedFiles.length);
                 
                 // 更新结果摘要
                 let summaryHtml = `<p><strong>修复完成，共处理 ${processed} 个文件</strong></p>`;
@@ -406,7 +525,7 @@ $(document).ready(function() {
                     $('#fix-failed-files-section').hide();
                     
                     // 调试信息
-                    console.log('修复结果模态框已关闭，已清除所有内容');
+                    log('debug', '修复结果模态框已关闭，已清除所有内容');
                 });
                 
                 // 显示结果模态框
@@ -460,12 +579,14 @@ $(document).ready(function() {
                 }, 100);
                 
                 // 调试信息：显示模态框调用
-                console.log('显示修复结果模态框');
+                log('debug', '显示修复结果模态框');
                 
                 // 清空已选择列表
                 selectedFiles = [];
                 // 更新已选择文件列表显示
                 updateSelectedFilesList();
+                const checkboxes = $('.file-list-item .checkbox');
+                checkboxes.prop('checked', false);
                 // 更新按钮状态
                 updateButtons();
                 // 刷新文件列表
@@ -473,8 +594,52 @@ $(document).ready(function() {
             },
             error: function(xhr, status, error) {
                 $('#loading').hide();
-                alert('修复失败: ' + error);
+                customAlert('修复失败: ' + error, '错误');
             }
+        });
+        });
+    });
+    
+    // 清理空文件夹按钮
+    $('#clean-empty-folders-btn').on('click', function() {
+        if (selectedFiles.length === 0) {
+            customAlert('请先选择文件或文件夹');
+            return;
+        }
+        
+        customConfirm('确定要清理选中路径下所有的空文件夹吗？', function(confirmed) {
+            if (!confirmed) {
+                return;
+            }
+            
+            // 显示加载动画
+            $('#loading').show();
+            
+            // 发送请求清理空文件夹
+            $.ajax({
+                url: '/clean_empty_folders',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ selected_paths: selectedFiles }),
+                success: function(response) {
+                    $('#loading').hide();
+                    customAlert('清理完成，共删除 ' + response.deleted_count + ' 个空文件夹');
+                    // 清空已选择列表
+                    selectedFiles = [];
+                    // 更新已选择文件列表显示
+                    updateSelectedFilesList();
+                    const checkboxes = $('.file-list-item .checkbox');
+                    checkboxes.prop('checked', false);
+                    // 更新按钮状态
+                    updateButtons();
+                    // 刷新文件列表
+                    loadFiles();
+                },
+                error: function(xhr, status, error) {
+                    $('#loading').hide();
+                    customAlert('清理失败: ' + error, '错误');
+                }
+            });
         });
     });
     
@@ -493,7 +658,7 @@ $(document).ready(function() {
     // 开始压缩按钮
     $('#start-compress-btn').on('click', function() {
         if (selectedFiles.length === 0) {
-            alert('请先选择文件或文件夹');
+            customAlert('请先选择文件或文件夹');
             return;
         }
         
@@ -531,7 +696,11 @@ $(document).ready(function() {
             success: function(response) {
                 // 清空已选择列表
                 selectedFiles = [];
+                // 更新已选择文件列表显示
                 updateSelectedFilesList();
+                const checkboxes = $('.file-list-item .checkbox');
+                checkboxes.prop('checked', false);
+                // 更新按钮状态
                 updateButtons();
                 
                 // 立即调用一次updateProgress
@@ -601,7 +770,11 @@ $(document).ready(function() {
             success: function(response) {
                 // 清空已选择列表
                 selectedFiles = [];
+                // 更新已选择文件列表显示
                 updateSelectedFilesList();
+                const checkboxes = $('.file-list-item .checkbox');
+                checkboxes.prop('checked', false);
+                // 更新按钮状态
                 updateButtons();
                 
                 // 立即调用一次updateProgress
@@ -1160,7 +1333,7 @@ function previewImage(path) {
     
     // 如果是PDF或HEIC/HEIF文件，直接下载而不预览
     if (ext === 'pdf' || ext === 'heic' || ext === 'heif') {
-        console.log('直接下载文件:', path);
+        log('info', '直接下载文件:', path);
         // 创建临时链接下载文件
         const link = document.createElement('a');
         link.href = '/download?path=' + encodeURIComponent(path);
