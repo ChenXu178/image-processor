@@ -1143,8 +1143,8 @@ def count_formats():
                 for root, dirs, files in os.walk(path):
                     for file in files:
                         filepath = os.path.join(root, file)
-                        # 获取文件扩展名
-                        ext = os.path.splitext(file)[1].lower()[1:]  # [1:] 移除点号
+                        # 获取文件扩展名（区分大小写）
+                        ext = os.path.splitext(file)[1][1:]  # [1:] 移除点号，保持原始大小写
                         # 如果文件没有扩展名，使用'no_extension'
                         if not ext:
                             ext = 'no_extension'
@@ -1160,8 +1160,8 @@ def count_formats():
                 logger.info(f"统计文件: {path}")
                 # 处理单个文件，统计所有文件
                 filename = os.path.basename(path)
-                # 获取文件扩展名
-                ext = os.path.splitext(filename)[1].lower()[1:]  # [1:] 移除点号
+                # 获取文件扩展名（区分大小写）
+                ext = os.path.splitext(filename)[1][1:]  # [1:] 移除点号，保持原始大小写
                 # 如果文件没有扩展名，使用'no_extension'
                 if not ext:
                     ext = 'no_extension'
@@ -1194,6 +1194,7 @@ def fix_extensions():
     请求方法: POST
     请求参数: selected_paths - 要修复的文件或文件夹路径列表
     返回: JSON格式的修复结果，包括处理的文件数量
+    说明: 支持所有文件类型，跳过隐藏文件
     """
     selected_paths = request.json.get('selected_paths', [])
     logger.info(f"开始修复文件后缀，选中路径: {selected_paths}")
@@ -1203,21 +1204,26 @@ def fix_extensions():
         return jsonify({'error': '未选中任何文件或文件夹'}), 400
     
     processed = 0  # 处理的文件数量
+    skipped_files = []  # 跳过的文件列表
+    failed_files = []  # 失败的文件列表
     
     try:
         for path in selected_paths:
             if os.path.isdir(path):
                 logger.info(f"修复目录: {path}")
-                # 遍历目录
+                # 遍历目录，处理所有文件
                 for root, dirs, files in os.walk(path):
                     for file in files:
-                        # 检查文件是否为图片
-                        if is_image_file(file):
+                        # 跳过隐藏文件
+                        if file.startswith('.'):
+                            continue
+                        
+                        try:
                             # 获取文件扩展名，确保使用正确的分割方法
                             name_without_ext, ext = os.path.splitext(file)
                             # 标准化扩展名
                             ext_lower = ext.lower()
-                            # 检查是否需要修复：1) 包含大写 2) 是jpeg 3) 是heic但扩展名是大写
+                            # 检查是否需要修复：1) 包含大写 2) 是jpeg
                             needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
                             
                             if needs_fix:
@@ -1230,42 +1236,131 @@ def fix_extensions():
                                 # 检查新文件名是否已存在
                                 if os.path.exists(new_path):
                                     logger.info(f"文件已存在，跳过: {new_path}")
+                                    skipped_files.append(old_path)
                                     continue
                                 # 重命名文件
                                 os.rename(old_path, new_path)
                                 logger.info(f"重命名文件: {old_path} -> {new_path}")
                                 processed += 1
-            elif os.path.isfile(path) and is_image_file(path):
-                logger.info(f"修复文件: {path}")
-                # 获取文件扩展名
-                filename = os.path.basename(path)
-                name_without_ext, ext = os.path.splitext(filename)
-                # 标准化扩展名
-                ext_lower = ext.lower()
-                # 检查是否需要修复：1) 包含大写 2) 是jpeg
-                needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
-                
-                if needs_fix:
-                    # 生成新扩展名：如果是jpeg则改为jpg，否则保留原扩展名的小写
-                    new_ext = '.jpg' if ext_lower == '.jpeg' else ext_lower
-                    # 生成新文件名
-                    new_name = f"{name_without_ext}{new_ext}"
-                    dirname = os.path.dirname(path)
-                    new_path = os.path.join(dirname, new_name)
-                    # 检查新文件名是否已存在
-                    if os.path.exists(new_path):
-                        logger.info(f"文件已存在，跳过: {new_path}")
+                        except Exception as e:
+                            # 记录失败的文件
+                            failed_file = os.path.join(root, file)
+                            failed_files.append({'path': failed_file, 'error': str(e)})
+                            logger.error(f"处理文件失败: {failed_file}, 错误: {e}")
+            elif os.path.isfile(path):
+                try:
+                    logger.info(f"修复文件: {path}")
+                    # 获取文件扩展名
+                    filename = os.path.basename(path)
+                    # 跳过隐藏文件
+                    if filename.startswith('.'):
                         continue
-                    # 重命名文件
-                    os.rename(path, new_path)
-                    logger.info(f"重命名文件: {path} -> {new_path}")
-                    processed += 1
+                    # 获取文件扩展名
+                    name_without_ext, ext = os.path.splitext(filename)
+                    # 标准化扩展名
+                    ext_lower = ext.lower()
+                    # 检查是否需要修复：1) 包含大写 2) 是jpeg
+                    needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
+                    
+                    if needs_fix:
+                        # 生成新扩展名：如果是jpeg则改为jpg，否则保留原扩展名的小写
+                        new_ext = '.jpg' if ext_lower == '.jpeg' else ext_lower
+                        # 生成新文件名
+                        new_name = f"{name_without_ext}{new_ext}"
+                        dirname = os.path.dirname(path)
+                        new_path = os.path.join(dirname, new_name)
+                        # 检查新文件名是否已存在
+                        if os.path.exists(new_path):
+                            logger.info(f"文件已存在，跳过: {new_path}")
+                            skipped_files.append(path)
+                            continue
+                        # 重命名文件
+                        os.rename(path, new_path)
+                        logger.info(f"重命名文件: {path} -> {new_path}")
+                        processed += 1
+                except Exception as e:
+                    # 记录失败的文件
+                    failed_files.append({'path': path, 'error': str(e)})
+                    logger.error(f"处理文件失败: {path}, 错误: {e}")
         
-        logger.info(f"修复完成，共处理 {processed} 个文件")
-        return jsonify({'processed': processed})
+        logger.info(f"修复完成，共处理 {processed} 个文件，跳过 {len(skipped_files)} 个文件，失败 {len(failed_files)} 个文件")
+        return jsonify({
+            'processed': processed,
+            'skipped_files': skipped_files,
+            'failed_files': failed_files
+        })
     except Exception as e:
         logger.error(f"修复文件后缀失败: {e}")
         return jsonify({'error': '修复文件后缀失败: {e}'}), 500
+
+@app.route('/delete_files_by_format', methods=['POST'])
+def delete_files_by_format():
+    """
+    根据文件格式删除文件
+    请求方法: POST
+    请求参数: selected_paths - 要处理的文件或文件夹路径列表，format - 要删除的文件格式
+    返回: JSON格式的结果，包括删除的文件数量
+    """
+    selected_paths = request.json.get('selected_paths', [])
+    format = request.json.get('format', '')
+    logger.info(f"开始删除指定格式文件，选中路径: {selected_paths}，格式: {format}")
+    
+    if not selected_paths:
+        logger.warning("未选中任何文件或文件夹")
+        return jsonify({'error': '未选中任何文件或文件夹'}), 400
+    
+    if not format:
+        logger.warning("未指定要删除的文件格式")
+        return jsonify({'error': '未指定要删除的文件格式'}), 400
+    
+    deleted_count = 0  # 删除的文件数
+    
+    try:
+        for path in selected_paths:
+            if os.path.isdir(path):
+                logger.info(f"删除目录中的文件: {path}")
+                # 遍历目录，删除所有指定格式的文件
+                for root, dirs, files in os.walk(path):
+                    for file in files:
+                        filepath = os.path.join(root, file)
+                        # 跳过隐藏文件
+                        if file.startswith('.'):
+                            continue
+                        
+                        # 获取文件扩展名（区分大小写）
+                        file_ext = os.path.splitext(file)[1][1:]  # [1:] 移除点号，保持原始大小写
+                        # 如果文件没有扩展名，使用'no_extension'
+                        if not file_ext:
+                            file_ext = 'no_extension'
+                        
+                        # 检查文件格式是否匹配
+                        if file_ext == format:
+                            # 删除文件
+                            os.remove(filepath)
+                            deleted_count += 1
+                            logger.info(f"删除文件: {filepath}")
+            elif os.path.isfile(path):
+                logger.info(f"检查文件: {path}")
+                # 检查单个文件
+                filename = os.path.basename(path)
+                # 获取文件扩展名（区分大小写）
+                file_ext = os.path.splitext(filename)[1][1:]  # [1:] 移除点号，保持原始大小写
+                # 如果文件没有扩展名，使用'no_extension'
+                if not file_ext:
+                    file_ext = 'no_extension'
+                
+                # 检查文件格式是否匹配
+                if file_ext == format:
+                    # 删除文件
+                    os.remove(path)
+                    deleted_count += 1
+                    logger.info(f"删除文件: {path}")
+        
+        logger.info(f"删除完成，共删除 {deleted_count} 个文件")
+        return jsonify({'deleted_count': deleted_count})
+    except Exception as e:
+        logger.error(f"删除文件失败: {e}")
+        return jsonify({'error': f'删除文件失败: {e}'}), 500
 
 @app.route('/compress_images', methods=['POST'])
 def compress_images():

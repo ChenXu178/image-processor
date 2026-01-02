@@ -277,6 +277,7 @@ $(document).ready(function() {
                 resultHtml += '<th>数量</th>';
                 resultHtml += '<th>总大小</th>';
                 resultHtml += '<th>平均大小</th>';
+                resultHtml += '<th>操作</th>';
                 resultHtml += '</tr>';
                 resultHtml += '</thead>';
                 resultHtml += '<tbody>';
@@ -285,10 +286,11 @@ $(document).ready(function() {
                     const size = response.format_size[format] || 0;
                     const avgSize = count > 0 ? size / count : 0;
                     resultHtml += '<tr>';
-                    resultHtml += '<td>' + format.toUpperCase() + '</td>';
+                    resultHtml += '<td>' + format + '</td>';
                     resultHtml += '<td>' + count + '</td>';
                     resultHtml += '<td>' + formatFileSize(size) + '</td>';
                     resultHtml += '<td>' + formatFileSize(avgSize) + '</td>';
+                    resultHtml += '<td><button class="btn btn-danger btn-sm delete-format-btn" data-format="' + format + '" title="删除所有该格式文件">删除</button></td>';
                     resultHtml += '</tr>';
                 }
                 
@@ -299,6 +301,41 @@ $(document).ready(function() {
                 // 更新模态框内容并显示
                 $('#statistics-result').html(resultHtml);
                 $('#statistics-modal').modal('show');
+                
+                // 为删除按钮添加点击事件
+                $('.delete-format-btn').on('click', function() {
+                    const format = $(this).data('format');
+                    const count = response.format_count[format];
+                    
+                    // 显示确认对话框
+                    if (confirm(`确定要删除所有${format.toUpperCase()}格式的文件吗？共${count}个文件将被删除，此操作不可恢复！`)) {
+                        // 显示加载动画
+                        $('#loading').show();
+                        
+                        // 发送删除请求
+                        $.ajax({
+                            url: '/delete_files_by_format',
+                            type: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({
+                                selected_paths: selectedFiles,
+                                format: format
+                            }),
+                            success: function(response) {
+                                $('#loading').hide();
+                                alert(`成功删除${response.deleted_count}个${format.toUpperCase()}格式的文件`);
+                                // 刷新文件列表
+                                loadFiles();
+                                // 关闭统计模态框
+                                $('#statistics-modal').modal('hide');
+                            },
+                            error: function(xhr, status, error) {
+                                $('#loading').hide();
+                                alert('删除失败: ' + error);
+                            }
+                        });
+                    }
+                });
             },
             error: function(xhr, status, error) {
                 $('#loading').hide();
@@ -314,7 +351,7 @@ $(document).ready(function() {
             return;
         }
         
-        if (!confirm('确定要修复选中路径下所有图片文件的后缀名吗？这将把所有大写后缀改为小写，例如PNG->png, Jpg->jpg。')) {
+        if (!confirm('确定要修复选中路径下所有文件的后缀名吗？这将把所有大写后缀改为小写（例如PNG->png, Jpg->jpg），并将jpeg改为jpg。')) {
             return;
         }
         
@@ -329,7 +366,102 @@ $(document).ready(function() {
             data: JSON.stringify({ selected_paths: selectedFiles }),
             success: function(response) {
                 $('#loading').hide();
-                alert('修复完成，共处理 ' + response.processed + ' 个文件');
+                
+                // 调试信息
+                console.log('修复结果响应:', response);
+                
+                // 准备结果数据，确保是数组类型
+                const processed = response.processed || 0;
+                const skippedFiles = Array.isArray(response.skipped_files) ? response.skipped_files : [];
+                const failedFiles = Array.isArray(response.failed_files) ? response.failed_files : [];
+                
+                // 调试信息
+                console.log('处理的文件数:', processed);
+                console.log('跳过的文件数:', skippedFiles.length);
+                console.log('失败的文件数:', failedFiles.length);
+                
+                // 更新结果摘要
+                let summaryHtml = `<p><strong>修复完成，共处理 ${processed} 个文件</strong></p>`;
+                if (skippedFiles.length > 0) {
+                    summaryHtml += `<p class="text-warning">跳过 ${skippedFiles.length} 个文件（文件已存在）</p>`;
+                }
+                if (failedFiles.length > 0) {
+                    summaryHtml += `<p class="text-danger">修复失败 ${failedFiles.length} 个文件</p>`;
+                }
+                $('#fix-result-summary').html(summaryHtml);
+                
+                // 为模态框添加关闭事件，清除之前的列表内容
+                $('#fix-result-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
+                    // 清除摘要信息
+                    $('#fix-result-summary').html('');
+                    
+                    // 清除跳过列表
+                    $('#fix-skipped-files-list').html('');
+                    $('#fix-skipped-count').text('0');
+                    $('#fix-skipped-files-section').hide();
+                    
+                    // 清除失败列表
+                    $('#fix-failed-files-list').html('');
+                    $('#fix-failed-count').text('0');
+                    $('#fix-failed-files-section').hide();
+                    
+                    // 调试信息
+                    console.log('修复结果模态框已关闭，已清除所有内容');
+                });
+                
+                // 显示结果模态框
+                $('#fix-result-modal').modal('show');
+                
+                // 延迟设置内部元素显示状态，确保模态框已经显示
+                setTimeout(function() {
+                    // 显示跳过的文件列表
+                    if (skippedFiles.length > 0) {
+                        $('#skipped-count').text(skippedFiles.length);
+                        
+                        // 生成HTML，使用带分割线的样式
+                    let skippedHtml = '';
+                    for (let i = 0; i < skippedFiles.length; i++) {
+                        const file = skippedFiles[i];
+                        skippedHtml += `<div style="padding: 8px 0; border-bottom: 1px solid #e9ecef; word-break: break-all; word-wrap: break-word;">${file}</div>`;
+                    }
+                    
+                    // 设置文件列表内容
+                    $('#fix-skipped-files-list').html(skippedHtml);
+                        
+                        // 显示section
+                        $('#fix-skipped-files-section').show();
+                    } else {
+                        // 隐藏跳过文件section
+                        $('#fix-skipped-files-section').hide();
+                    }
+                    
+                    // 显示失败的文件列表
+                    if (failedFiles.length > 0) {
+                        $('#failed-count').text(failedFiles.length);
+                        
+                        // 生成HTML，使用带分割线的样式
+                    let failedHtml = '';
+                    for (let i = 0; i < failedFiles.length; i++) {
+                        const file = failedFiles[i];
+                        const filePath = file.path || '未知路径';
+                        const fileError = file.error || '未知错误';
+                        failedHtml += `<div style="padding: 8px 0; border-bottom: 1px solid #e9ecef; word-break: break-all; word-wrap: break-word;"><strong>${filePath}</strong>: ${fileError}</div>`;
+                    }
+                    
+                    // 设置文件列表内容
+                    $('#fix-failed-files-list').html(failedHtml);
+                        
+                        // 显示section
+                        $('#fix-failed-files-section').show();
+                    } else {
+                        // 隐藏失败文件section
+                        $('#fix-failed-files-section').hide();  
+                    }
+                }, 100);
+                
+                // 调试信息：显示模态框调用
+                console.log('显示修复结果模态框');
+                
                 // 刷新文件列表
                 loadFiles();
             },
