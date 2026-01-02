@@ -90,7 +90,8 @@ $(document).ready(function() {
                 // 如果已经是根目录，保持不变
                 currentPath = baseDir;
             }
-            loadFiles();
+            // 回到上级目录时不自动进入子文件夹
+            loadFiles(false);
         }
     });
     
@@ -477,16 +478,20 @@ $(document).ready(function() {
  * 加载文件列表
  * 向服务器发送请求，获取指定路径下的文件列表
  * 然后生成HTML并显示在页面上
+ * @param {boolean} autoEnter - 是否自动进入子文件夹，默认为true
  */
-function loadFiles() {
-    log('info', '开始加载文件列表，路径: ' + currentPath);
+function loadFiles(autoEnter = true) {
+    log('info', '开始加载文件列表，路径: ' + currentPath + ', autoEnter: ' + autoEnter);
     
     $.ajax({
         url: '/get_files',
         type: 'POST',
-        data: { path: currentPath },
+        data: { 
+            path: currentPath,
+            auto_enter: autoEnter
+        },
         success: function(response) {
-            log('info', '文件列表加载成功，路径: ' + currentPath, response);
+            log('info', '文件列表加载成功，路径: ' + response.current_path, response);
             
             currentPath = response.current_path;
             $('#current-path').text(currentPath);
@@ -557,6 +562,7 @@ function bindFileListEvents() {
     $('.file-list-item').on('click', function(e) {
         const path = $(this).data('path');
         const type = $(this).data('type');
+        const filename = $(this).find('.filename').text();
         
         // 立即清除悬浮预览的延迟，避免两种预览同时出现
         if (hoverTimeout) {
@@ -564,12 +570,17 @@ function bindFileListEvents() {
             hoverTimeout = null;
         }
         
-        // 如果点击的是文件名或图标，处理不同类型
-        if (e.target.classList.contains('filename') || e.target.classList.contains('icon')) {
+        // 如果点击的不是复选框，处理不同类型
+        if (!e.target.classList.contains('checkbox')) {
             if (type === 'dir') {
                 // 进入文件夹
                 currentPath = path;
-                loadFiles();
+                // 如果是返回上级目录(..)，不自动进入子文件夹
+                if (filename === '..') {
+                    loadFiles(false);
+                } else {
+                    loadFiles(true);
+                }
             } else {
                 // 预览图片
                 previewImage(path);
@@ -605,6 +616,11 @@ function bindFileListEvents() {
     
     // 鼠标进入事件
     $('.file-list-item').on('mouseenter', function(e) {
+        // 如果模态框预览正在加载，不显示悬浮预览
+        if (isModalPreviewLoading) {
+            return;
+        }
+
         const path = $(this).data('path');
         const type = $(this).data('type');
         
@@ -957,6 +973,8 @@ function previewImage(path) {
             
             // 绑定EXIF信息显示/隐藏按钮事件（只有当按钮存在时才绑定）
             if (response.exif && Object.keys(response.exif).length > 0) {
+                // 先移除旧的事件监听器，避免重复绑定
+                $('#toggle-exif-btn').off('click');
                 $('#toggle-exif-btn').on('click', function() {
                     const exifContainer = $('#exif-info-container');
                     if (exifContainer.is(':hidden')) {
@@ -969,6 +987,8 @@ function previewImage(path) {
                 });
                 
                 // 为查询地址按钮绑定点击事件
+                // 先移除旧的事件监听器，避免重复绑定
+                $('#image-info').off('click', '.query-address-btn');
                 $('#image-info').on('click', '.query-address-btn', function() {
                     const lat = $(this).data('lat');
                     const lon = $(this).data('lon');

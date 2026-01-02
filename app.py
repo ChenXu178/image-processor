@@ -579,16 +579,54 @@ def get_files():
     """
     获取指定路径下的文件列表
     请求方法: POST
-    请求参数: path - 要获取文件的路径，默认为BASE_DIR
+    请求参数: 
+        path - 要获取文件的路径，默认为BASE_DIR
+        auto_enter - 是否自动进入子文件夹，默认为true
     返回: JSON格式的文件列表和当前路径
+    如果路径下只有一个文件夹且auto_enter为true，自动进入该文件夹，直到满足终止条件
     """
     path = request.form.get('path', BASE_DIR)
-    logger.info(f"获取文件列表，路径: {path}")
+    auto_enter = request.form.get('auto_enter', 'true').lower() == 'true'
+    logger.info(f"获取文件列表，路径: {path}, auto_enter: {auto_enter}")
     
     # 确保路径在BASE_DIR下，防止目录遍历攻击
     if not os.path.normpath(path).startswith(os.path.normpath(BASE_DIR)):
         logger.warning(f"路径 {path} 不在BASE_DIR下，使用默认路径: {BASE_DIR}")
         path = BASE_DIR
+    
+    # 自动进入子文件夹逻辑
+    if auto_enter:
+        max_depth = 10  # 防止无限递归
+        current_depth = 0
+        
+        while current_depth < max_depth:
+            try:
+                # 获取当前目录下的所有项目
+                items = os.listdir(path)
+                dir_count = 0
+                file_count = 0
+                single_dir_path = None
+                
+                # 统计目录和文件数量
+                for item in items:
+                    item_path = os.path.join(path, item)
+                    if os.path.isdir(item_path):
+                        dir_count += 1
+                        single_dir_path = item_path
+                    elif is_image_file(item):
+                        file_count += 1
+                
+                # 如果只有一个目录且没有文件，自动进入该目录
+                if dir_count == 1 and file_count == 0:
+                    logger.info(f"自动进入子文件夹: {single_dir_path}")
+                    path = single_dir_path
+                    current_depth += 1
+                else:
+                    # 满足终止条件，退出循环
+                    break
+            except Exception as e:
+                logger.error(f"自动进入子文件夹失败: {e}")
+                break
     
     files = []
     try:
@@ -615,7 +653,7 @@ def get_files():
                 })
         # 按类型排序，文件夹在前，文件在后
         files.sort(key=lambda x: (x['type'] != 'dir', x['name']))
-        logger.info(f"成功获取 {len(files)} 个文件/文件夹")
+        logger.info(f"成功获取 {len(files)} 个文件/文件夹，当前路径: {path}")
         
         return jsonify({
             'files': files,
@@ -745,13 +783,25 @@ def preview_image():
                                         # 使用扩展的标签值映射优化GPS字段
                                         if gps_tag_name in extended_value_mappings:
                                             mapping = extended_value_mappings[gps_tag_name]
+                                            # 检查gps_serializable_value是否可哈希，避免list等不可哈希类型导致错误
                                             if isinstance(gps_serializable_value, (int, float)):
                                                 gps_serializable_value = mapping.get(int(gps_serializable_value), gps_serializable_value)
-                                            else:
+                                            elif isinstance(gps_serializable_value, (str, bytes, tuple)):
+                                                # 只有可哈希类型才能作为字典键
                                                 gps_serializable_value = mapping.get(gps_serializable_value, gps_serializable_value)
                                         
                                         # 只添加非空值
-                                        if gps_serializable_value is not None:
+                                        is_empty = False
+                                        if gps_serializable_value is None:
+                                            is_empty = True
+                                        elif isinstance(gps_serializable_value, str) and gps_serializable_value.strip() == '':
+                                            is_empty = True
+                                        elif isinstance(gps_serializable_value, bytes) and len(gps_serializable_value) == 0:
+                                            is_empty = True
+                                        elif isinstance(gps_serializable_value, (list, tuple)) and len(gps_serializable_value) == 0:
+                                            is_empty = True
+                                        
+                                        if not is_empty:
                                             # 使用中文字段名，如果没有映射则使用原字段名
                                             chinese_gps_tag_name = exif_field_map.get(gps_tag_name, gps_tag_name)
                                             exif[chinese_gps_tag_name] = gps_serializable_value
@@ -821,13 +871,25 @@ def preview_image():
                                 # 使用扩展的标签值映射优化其他字段
                                 elif tag_name in extended_value_mappings:
                                     mapping = extended_value_mappings[tag_name]
+                                    # 检查serializable_value是否可哈希，避免list等不可哈希类型导致错误
                                     if isinstance(serializable_value, (int, float)):
                                         serializable_value = mapping.get(int(serializable_value), serializable_value)
-                                    else:
+                                    elif isinstance(serializable_value, (str, bytes, tuple)):
+                                        # 只有可哈希类型才能作为字典键
                                         serializable_value = mapping.get(serializable_value, serializable_value)
                                 
                                 # 只添加非空值
-                                if serializable_value is not None:
+                                is_empty = False
+                                if serializable_value is None:
+                                    is_empty = True
+                                elif isinstance(serializable_value, str) and serializable_value.strip() == '':
+                                    is_empty = True
+                                elif isinstance(serializable_value, bytes) and len(serializable_value) == 0:
+                                    is_empty = True
+                                elif isinstance(serializable_value, (list, tuple)) and len(serializable_value) == 0:
+                                    is_empty = True
+                                
+                                if not is_empty:
                                     # 使用中文字段名，如果没有映射则使用原字段名
                                     chinese_tag_name = exif_field_map.get(tag_name, tag_name)
                                     exif[chinese_tag_name] = serializable_value
