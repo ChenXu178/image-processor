@@ -264,7 +264,43 @@
         font-size: 12px;
         padding: 4px 6px;
     }
+
+    #image-info {
+        padding: 5px 15px;
+    }
+
+    #toggle-exif-btn {
+        font-size: 12px;
+        margin-bottom: 0;
+    }
+
+    #exif-title {
+        margin: 10px 0;
+        border-bottom: 1px solid #eee; 
+        padding-bottom: 5px;
+    }
+
+    .exif-info {
+        gap: 8px;
+    }
+
+    .exif-item {
+        padding: 0; 
+    }
+
+    .exif-item-key {
+        font-size: 12px;
+        margin-bottom: 0;
+    }
+
+    .modal-dialog .exif-item-gps-btn {
+        padding: 2px 4px;
+        font-size: 10px;
+    }
     
+    .exif-item-value {
+        font-size: 12px;
+    }
 }
 
 /* 针对超小屏幕设备（宽度小于480px） */

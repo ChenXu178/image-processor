@@ -306,6 +306,16 @@ body {
     text-align: left;
 }
 
+#toggle-exif-btn {
+    margin-bottom: 10px;
+}
+
+.exif-item {
+    background: #f8f9fa; 
+    padding: 8px; 
+    border-radius: 4px;
+}
+
 #statistics {
     margin-top: 30px;
     padding-top: 20px;
@@ -416,13 +426,53 @@ body {
 
 #image-info {
     background-color: #f8f9fa;
-    padding: 15px;
+    padding: 10px 15px;
     border-radius: 4px;
 }
 
 #image-info p {
     margin: 5px 0;
     font-size: 14px;
+}
+
+#exif-title {
+    margin: 10px 0;
+    border-bottom: 1px solid #eee; 
+    padding-bottom: 5px;
+}
+
+.exif-info {
+    display: grid; 
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+    gap: 10px; 
+    font-size: 14px;
+}
+
+.exif-item-key {
+    display: block; 
+    color: #495057; 
+    margin-bottom: 2px;
+
+    /* color: #495057; margin-bottom: 2px; display: inline-block; */
+}
+
+.exif-item-gps-key {
+    display: inline-block;
+}
+
+.exif-item-gps-btn {
+    margin-left: 8px; 
+    margin-bottom: 4px; 
+    display: inline-flex; 
+    align-items: center; 
+    gap: 4px;
+    padding: 2px 6px;
+    font-size: 12px;
+}
+
+.exif-item-value {
+    color: #6c757d; 
+    display: block;
 }
 
 /* 统计结果 */

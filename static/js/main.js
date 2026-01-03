@@ -235,11 +235,21 @@ $(document).ready(function() {
             // 后退键 (Mouse4)
             e.preventDefault();
             log('info', '鼠标侧键后退 (mousedown)');
+            if (isModalPreviewOpen) {
+                $('#image-preview-modal').modal('hide');
+                return;
+            }
             $('#back-btn').click();
+            hideHoverPreview();
         } else if (e.originalEvent.button === 4) {
             // 前进键 (Mouse5)
             e.preventDefault();
             log('info', '鼠标侧键前进 (mousedown)');
+            if (isModalPreviewOpen) {
+                $('#image-preview-modal').modal('hide');
+                return;
+            }
+            hideHoverPreview();
             goForward();
         }
     });
@@ -472,10 +482,11 @@ $(document).ready(function() {
                     
                     // 遍历搜索结果生成列表项
                     for (const file of response.files) {
-                        const isImage = supportedFormats.includes(file.ext.toLowerCase());
-                        const previewBtn = isImage ? '<button class="btn btn-info btn-sm preview-btn" data-path="' + file.path + '" title="预览">预览</button>' : '';
+                        // 统一处理jpg和jpeg格式，将jpeg转换为jpg后检查
+                        const fileExt = file.ext.toLowerCase() === 'jpeg' ? 'jpg' : file.ext.toLowerCase();
+                        const isImage = supportedFormats.includes(fileExt);
                         
-                        resultHtml += '<div class="list-group-item list-group-item-action">';
+                        resultHtml += '<div class="list-group-item list-group-item-action search-result-item" data-path="' + file.path + '" data-is-image="' + isImage + '" style="cursor: pointer;">';
                         resultHtml += '<div class="d-flex justify-content-between align-items-center">';
 
                         resultHtml += '<div class="search-result-item-name" style="flex: 1; min-width: 0;">';
@@ -488,9 +499,8 @@ $(document).ready(function() {
                         resultHtml += '</div>';
                         resultHtml += '<div class="btn-group" style="flex-shrink: 0;">';
 
-                        resultHtml += '<button class="btn btn-primary btn-sm jump-btn" data-path="' + file.path + '" title="跳转">跳转</button>';
                         resultHtml += '<button class="btn btn-danger btn-sm delete-btn" data-path="' + file.path + '" title="删除">删除</button>';
-                        resultHtml += previewBtn;
+                        resultHtml += '<button class="btn btn-primary btn-sm jump-btn" data-path="' + file.path + '" title="跳转">跳转</button>';
                         resultHtml += '</div>';
                         resultHtml += '</div>';
                         resultHtml += '</div>';
@@ -579,11 +589,29 @@ $(document).ready(function() {
                     });
                 });
                 
-                // 为预览按钮添加点击事件
-                $('.preview-btn').on('click', function() {
+                // 为搜索结果列表项添加点击事件
+                $('.search-result-item').on('click', function(e) {
+                    // 检查点击的是否是按钮，如果是按钮则不触发列表项的点击事件
+                    if ($(e.target).closest('button').length > 0) {
+                        return;
+                    }
+                    
                     const path = $(this).data('path');
-                    // 调用预览图片函数
-                    previewImage(path);
+                    const isImage = $(this).data('is-image');
+                    
+                    if (isImage) {
+                        // 如果是图片，调用预览函数
+                        previewImage(path);
+                    } else {
+                        // 如果是其他文件，执行下载
+                        const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+                        const link = document.createElement('a');
+                        link.href = '/download?path=' + encodeURIComponent(path);
+                        link.download = filename;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                    }
                 });
             },
             error: function(xhr, status, error) {
@@ -1782,13 +1810,13 @@ function previewImage(path) {
             infoHtml += '<p><strong>大小:</strong> ' + formatFileSize(response.size) + '</p>';
             
             // 显示EXIF信息（如果有）
-            infoHtml += '<div class="mt-3">';
+            infoHtml += '<div>';
             if (response.exif && Object.keys(response.exif).length > 0) {
                 // 有EXIF信息时，添加显示/隐藏按钮和EXIF信息容器
-                infoHtml += '<button id="toggle-exif-btn" class="btn btn-sm btn-outline-secondary" style="margin-bottom: 10px;">显示EXIF信息</button>';
+                infoHtml += '<button id="toggle-exif-btn" class="btn btn-sm btn-outline-secondary">显示EXIF信息</button>';
                 infoHtml += '<div id="exif-info-container" style="display: none;">';
-                infoHtml += '<h5 style="margin-top: 15px; margin-bottom: 10px; border-bottom: 1px solid #eee; padding-bottom: 5px;">EXIF信息</h5>';
-                infoHtml += '<div class="exif-info" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; font-size: 14px;">';
+                infoHtml += '<h5 id="exif-title">EXIF信息</h5>';
+                infoHtml += '<div class="exif-info">';
                 
                 // 遍历EXIF数据，显示每个字段
                 for (const [key, value] of Object.entries(response.exif)) {
@@ -1796,7 +1824,7 @@ function previewImage(path) {
                     if (value === null || value === undefined) continue;
                     // 跳过过长的值
                     const displayValue = typeof value === 'string' && value.length > 50 ? value.substring(0, 50) + '...' : value;
-                    infoHtml += `<div class="exif-item" style="background: #f8f9fa; padding: 8px; border-radius: 4px;">`;
+                    infoHtml += `<div class="exif-item">`;
                     
                     // 为拍摄地址添加查询按钮到标题旁边
                     if (key === '拍摄地址') {
@@ -1805,20 +1833,18 @@ function previewImage(path) {
                         if (coordsMatch) {
                             const lat = parseFloat(coordsMatch[1]);
                             const lon = parseFloat(coordsMatch[2]);
-                            infoHtml += `<strong style="color: #495057; margin-bottom: 2px; display: inline-block;">${key}:</strong>`;
-                            infoHtml += `<button class="query-address-btn btn btn-sm btn-outline-primary" 
-                                        style="margin-left: 8px; margin-bottom: 4px; display: inline-flex; align-items: center; gap: 4px;" 
-                                        data-lat="${lat}" data-lon="${lon}" title="查询详细地址">
+                            infoHtml += `<strong class="exif-item-key exif-item-gps-key">${key}:</strong>`;
+                            infoHtml += `<button class="query-address-btn btn btn-sm btn-outline-primary exif-item-gps-btn" data-lat="${lat}" data-lon="${lon}" title="查询详细地址">
                                         <span>查询地址</span>
                                         </button>`;
                         } else {
-                            infoHtml += `<strong style="display: block; color: #495057; margin-bottom: 2px;">${key}:</strong>`;
+                            infoHtml += `<strong class="exif-item-key">${key}:</strong>`;
                         }
                     } else {
-                        infoHtml += `<strong style="display: block; color: #495057; margin-bottom: 2px;">${key}:</strong>`;
+                        infoHtml += `<strong class="exif-item-key">${key}:</strong>`;
                     }
                     
-                    infoHtml += `<span style="color: #6c757d; display: block;">${displayValue}</span>`;
+                    infoHtml += `<span class="exif-item-value">${displayValue}</span>`;
                     infoHtml += `</div>`;
                 }
                 
