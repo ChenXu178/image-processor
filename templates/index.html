@@ -33,12 +33,13 @@
                     <p>原始大小: <span id="original-size">0</span> MB</p>
                     <p>处理后大小: <span id="final-size">0</span> MB</p>
                     <p>压缩率: <span id="compression-rate">0</span>%</p>
+                    <p id="ignored-files-section" style="display: none;">被忽略文件: <span id="ignored-files-count">0</span> 个（小于<span id="ignored-files-threshold">0 KB</span>）</p>
                 </div>
                 
                 <!-- 失败文件列表 -->
                 <div id="failed-files-section" style="display: none; margin-top: 20px;">
                     <h6 style="background-color: #dc3545; color: white; padding: 8px 12px; border-radius: 4px; display: inline-block;">失败的文件（共<span id="failed-files-count">0</span>个）</h6>
-                    <div id="failed-files" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding: 10px; border-radius: 4px; text-align: left;">
+                    <div id="failed-files" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding-left: 10px; padding-right: 10px; border-radius: 4px; text-align: left;">
                         <!-- 失败文件列表将通过JS动态生成 -->
                     </div>
                 </div>
@@ -46,7 +47,7 @@
                 <!-- 跳过文件列表 -->
                 <div id="skipped-files-section" style="display: none; margin-top: 20px;">
                     <h6 style="background-color: #ffc107; color: black; padding: 8px 12px; border-radius: 4px; display: inline-block;">跳过的文件（共<span id="skipped-files-count">0</span>个）</h6>
-                    <div id="skipped-files" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding: 10px; border-radius: 4px; text-align: left;">
+                    <div id="skipped-files" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding-left: 10px; padding-right: 10px; border-radius: 4px; text-align: left;">
                         <!-- 跳过文件列表将通过JS动态生成 -->
                     </div>
                 </div>
@@ -117,11 +118,11 @@
                                     </div>
                                     <div class="form-group">
                                         <label for="min-file-size">最小文件大小（KB）</label>
-                                        <input type="number" class="form-control" id="min-file-size" value="2048" min="0">
-                                        <small class="form-text text-muted">小于此大小的文件将被跳过</small>
+                                        <input type="text" class="form-control" id="min-file-size" value="2048" placeholder="支持公式输入，如：1024*4">
+                                        <small class="form-text text-muted">小于此大小的文件将被忽略，支持公式输入（如：1024*4）</small>
                                     </div>
                                     <div class="form-group">
-                                        <label for="thread-count">线程数</label>
+                                        <label for="thread-count">使用线程数</label>
                                         <input type="range" class="form-control-range" id="thread-count" min="1" max="8" value="4">
                                         <span id="thread-value">4</span>
                                     </div>
@@ -154,8 +155,8 @@
                                         <!-- 动态生成支持的格式选项 -->
                                     </select>
                                 </div>
-                                <div class="form-group form-check" id="skip-pdf-container" style="display: none;">
-                                    <input type="checkbox" class="form-check-input" id="skip-pdf-checkbox">
+                                <div class="form-group form-check" id="skip-pdf-container">
+                                    <input type="checkbox" class="form-check-input" id="skip-pdf-checkbox" checked>
                                     <label class="form-check-label" for="skip-pdf-checkbox">跳过PDF文件</label>
                                 </div>
                                 <div class="form-group">
@@ -164,7 +165,7 @@
                                     <span id="convert-quality-value">99</span>%
                                 </div>
                                 <div class="form-group">
-                                    <label for="convert-thread-count">线程数</label>
+                                    <label for="convert-thread-count">使用线程数</label>
                                     <input type="range" class="form-control-range" id="convert-thread-count" min="1" max="8" value="4">
                                     <span id="convert-thread-value">4</span>
                                 </div>
@@ -238,7 +239,7 @@
                 </div>
                 <div class="modal-body">
                     <div class="form-group">
-                        <label for="search-pattern">搜索模式 (支持正则表达式)</label>
+                        <label for="search-pattern">关键字 (支持正则表达式)</label>
                         <input type="text" class="form-control" id="search-pattern" placeholder="例如: .*\.jpg$">
                     </div>
                     <div class="form-group form-check">
@@ -275,11 +276,11 @@
                     <div id="fix-result-summary" class="mb-3"></div>
                     <div id="fix-skipped-files-section" class="mb-4">
                         <h6>跳过的文件（共<span id="skipped-count">0</span>个）</h6>
-                        <div id="fix-skipped-files-list" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding: 10px; border-radius: 4px;"></div>
+                        <div id="fix-skipped-files-list" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding-left: 10px; padding-right: 10px; border-radius: 4px;"></div>
                     </div>
                     <div id="fix-failed-files-section" class="mb-4">
                         <h6>失败的文件（共<span id="failed-count">0</span>个）</h6>
-                        <div id="fix-failed-files-list" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding: 10px; border-radius: 4px;"></div>
+                        <div id="fix-failed-files-list" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding-left: 10px; padding-right: 10px; border-radius: 4px;"></div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -330,6 +331,23 @@
         </div>
     </div>
     
+    <!-- Toast模态框 -->
+    <div class="modal fade" id="toast-modal" tabindex="-1" role="dialog" aria-labelledby="toast-modal-title" aria-hidden="true" style="z-index: 12000;">
+        <div class="modal-dialog modal-sm modal-dialog-centered" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="toast-modal-title">提示</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <p id="toast-modal-message"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 加载动画 -->
     <div id="loading" class="loading" style="display: none;">
         <div class="loading-content">

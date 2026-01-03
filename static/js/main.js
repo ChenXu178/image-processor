@@ -49,8 +49,64 @@ const MAX_HISTORY_LENGTH = 20;
 // 通用确认回调函数
 let confirmCallback = null;
 
+// 显示Toast模态框
+function showToast(message, title = '提示', duration = 2000) {
+    $('#toast-modal-title').text(title);
+    $('#toast-modal-message').text(message);
+    
+    // 显示Toast模态框
+    $('#toast-modal').modal('show');
+    
+    // 绑定模态框显示完成事件
+    $('#toast-modal').one('shown.bs.modal', function() {
+        // 给所有已打开的模态框添加覆盖层
+        $('.modal.show').not('#toast-modal').not('#alert-modal').not('#confirm-modal').each(function() {
+            const $modal = $(this);
+            // 检查是否已经有覆盖层
+            if ($modal.find('.modal-overlay').length === 0) {
+                // 创建覆盖层，使用CSS类
+                const $overlay = $('<div>').addClass('modal-overlay');
+                $modal.find('.modal-content').append($overlay);
+                // 延迟添加show类，触发过渡效果
+                setTimeout(function() {
+                    $overlay.addClass('show');
+                }, 100);
+            }
+        });
+        
+        // 给处理进度模态框添加覆盖层
+        const $progressOverlay = $('#progress-overlay');
+        if ($progressOverlay.is(':visible') && $progressOverlay.find('.modal-overlay').length === 0) {
+            const $overlay = $('<div>').addClass('modal-overlay show');
+            $progressOverlay.find('.progress-content').append($overlay);
+        }
+        
+        // 设置自动关闭
+        setTimeout(function() {
+            $('#toast-modal').modal('hide');
+        }, duration);
+    });
+    
+    // 绑定关闭事件，移除覆盖层
+    $('#toast-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
+        // 先移除show类，触发过渡效果
+        $('.modal-overlay').removeClass('show');
+        // 延迟移除元素，等待过渡效果完成
+        setTimeout(function() {
+            $('.modal-overlay').remove();
+        }, 150);
+    });
+}
+
 // 自定义alert函数
-function customAlert(message, title = '提示') {
+function customAlert(message, title = '提示', type = 'info') {
+    // 如果是提示类型，使用Toast模态框
+    if (type === 'info') {
+        showToast(message, title);
+        return;
+    }
+    
+    // 错误类型使用传统模态框
     $('#alert-modal-title').text(title);
     $('#alert-modal-message').text(message);
     
@@ -491,7 +547,20 @@ $(document).ready(function() {
                                 },
                                 error: function(xhr, status, error) {
                                     $('#loading').hide();
-                                    customAlert('删除失败: ' + error, '错误', 'error');
+                                    // 获取更具体的错误信息
+                                    let errorMessage = error;
+                                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                                        errorMessage = xhr.responseJSON.error;
+                                    } else if (xhr.responseText) {
+                                        try {
+                                            const response = JSON.parse(xhr.responseText);
+                                            errorMessage = response.error || errorMessage;
+                                        } catch (e) {
+                                            // 如果不是JSON格式，使用响应文本
+                                            errorMessage = xhr.responseText;
+                                        }
+                                    }
+                                    customAlert('删除失败: ' + errorMessage, '错误', 'error');
                                 }
                             });
                         }
@@ -506,9 +575,22 @@ $(document).ready(function() {
                 });
             },
             error: function(xhr, status, error) {
-                $('#loading').hide();
-                customAlert('搜索失败: ' + error, '错误', 'error');
-            }
+                    $('#loading').hide();
+                    // 获取更具体的错误信息
+                    let errorMessage = error;
+                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMessage = xhr.responseJSON.error;
+                    } else if (xhr.responseText) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            errorMessage = response.error || errorMessage;
+                        } catch (e) {
+                            // 如果不是JSON格式，使用响应文本
+                            errorMessage = xhr.responseText;
+                        }
+                    }
+                    customAlert('搜索失败: ' + errorMessage, '错误', 'error');
+                }
         });
     });
     
@@ -530,8 +612,7 @@ $(document).ready(function() {
                 $('#loading').hide();
                 
                 // 生成统计结果HTML
-                let resultHtml = '<h3>文件格式统计</h3>';
-                resultHtml += '<div class="mb-3">';
+                let resultHtml = '<div class="mb-3">';
                 resultHtml += '<p><strong>总文件数:</strong> ' + response.total_files + '</p>';
                 resultHtml += '<p><strong>总大小:</strong> ' + formatFileSize(response.total_size) + '</p>';
                 resultHtml += '</div>';
@@ -575,6 +656,9 @@ $(document).ready(function() {
                 $('#statistics-result').html(resultHtml);
                 $('#statistics-modal').modal('show');
                 
+                // 保存统计时使用的路径，用于后续删除操作
+                const currentCountPaths = countPaths;
+                
                 // 为删除按钮添加点击事件
                 $('.delete-format-btn').on('click', function() {
                     const $btn = $(this);
@@ -587,13 +671,13 @@ $(document).ready(function() {
                             // 显示加载动画
                             $('#loading').show();
                             
-                            // 发送删除请求
+                            // 发送删除请求，使用统计时的路径
                             $.ajax({
                                 url: '/delete_files_by_format',
                                 type: 'POST',
                                 contentType: 'application/json',
                                 data: JSON.stringify({
-                                    selected_paths: selectedFiles,
+                                    selected_paths: currentCountPaths,
                                     format: format
                                 }),
                                 success: function(response) {
@@ -605,9 +689,22 @@ $(document).ready(function() {
                                     $btn.closest('tr').hide();
                                 },
                                 error: function(xhr, status, error) {
-                                    $('#loading').hide();
-                                    customAlert('删除失败: ' + error, '错误');
-                                }
+                                        $('#loading').hide();
+                                        // 获取更具体的错误信息
+                                        let errorMessage = error;
+                                        if (xhr.responseJSON && xhr.responseJSON.error) {
+                                            errorMessage = xhr.responseJSON.error;
+                                        } else if (xhr.responseText) {
+                                            try {
+                                                const response = JSON.parse(xhr.responseText);
+                                                errorMessage = response.error || errorMessage;
+                                            } catch (e) {
+                                                // 如果不是JSON格式，使用响应文本
+                                                errorMessage = xhr.responseText;
+                                            }
+                                        }
+                                        customAlert('删除失败: ' + errorMessage, '错误', 'error');
+                                    }
                             });
                         }
                     });
@@ -627,9 +724,22 @@ $(document).ready(function() {
                 });
             },
             error: function(xhr, status, error) {
-                $('#loading').hide();
-                customAlert('统计失败: ' + error, '错误');
-            }
+                    $('#loading').hide();
+                    // 获取更具体的错误信息
+                    let errorMessage = error;
+                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMessage = xhr.responseJSON.error;
+                    } else if (xhr.responseText) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            errorMessage = response.error || errorMessage;
+                        } catch (e) {
+                            // 如果不是JSON格式，使用响应文本
+                            errorMessage = xhr.responseText;
+                        }
+                    }
+                    customAlert('统计失败: ' + errorMessage, '错误', 'error');
+                }
         });
     });
     
@@ -759,9 +869,22 @@ $(document).ready(function() {
                 loadFiles();
             },
             error: function(xhr, status, error) {
-                $('#loading').hide();
-                customAlert('修复失败: ' + error, '错误');
-            }
+                    $('#loading').hide();
+                    // 获取更具体的错误信息
+                    let errorMessage = error;
+                    if (xhr.responseJSON && xhr.responseJSON.error) {
+                        errorMessage = xhr.responseJSON.error;
+                    } else if (xhr.responseText) {
+                        try {
+                            const response = JSON.parse(xhr.responseText);
+                            errorMessage = response.error || errorMessage;
+                        } catch (e) {
+                            // 如果不是JSON格式，使用响应文本
+                            errorMessage = xhr.responseText;
+                        }
+                    }
+                    customAlert('修复失败: ' + errorMessage, '错误', 'error');
+                }
         });
         });
     });
@@ -802,9 +925,22 @@ $(document).ready(function() {
                     loadFiles();
                 },
                 error: function(xhr, status, error) {
-                    $('#loading').hide();
-                    customAlert('清理失败: ' + error, '错误');
-                }
+                        $('#loading').hide();
+                        // 获取更具体的错误信息
+                        let errorMessage = error;
+                        if (xhr.responseJSON && xhr.responseJSON.error) {
+                            errorMessage = xhr.responseJSON.error;
+                        } else if (xhr.responseText) {
+                            try {
+                                const response = JSON.parse(xhr.responseText);
+                                errorMessage = response.error || errorMessage;
+                            } catch (e) {
+                                // 如果不是JSON格式，使用响应文本
+                                errorMessage = xhr.responseText;
+                            }
+                        }
+                        customAlert('清理失败: ' + errorMessage, '错误', 'error');
+                    }
             });
         });
     });
@@ -816,28 +952,38 @@ $(document).ready(function() {
     });
     
     // 图片转换按钮
-            $('#convert-btn').on('click', function() {
-                // 显示转换配置模态框
-                $('#convert-modal').modal('show');
-                
-                // 检查当前选中的目标格式，显示或隐藏跳过PDF复选框
-                const targetFormat = $('#target-format').val();
-                if (targetFormat !== 'jpg') {
-                    $('#skip-pdf-container').show();
-                } else {
-                    $('#skip-pdf-container').hide();
-                }
-            });
-            
-            // 监听目标格式变化，显示或隐藏跳过PDF复选框
-            $('#target-format').on('change', function() {
-                const targetFormat = $(this).val();
-                if (targetFormat !== 'jpg') {
-                    $('#skip-pdf-container').show();
-                } else {
-                    $('#skip-pdf-container').hide();
-                }
-            });
+    $('#convert-btn').on('click', function() {
+        // 显示转换配置模态框
+        $('#convert-modal').modal('show');
+    });
+    
+    // 计算输入值，支持公式
+    function calculateInputValue(inputValue) {
+        // 移除所有空白字符
+        inputValue = inputValue.trim();
+        
+        // 如果是空字符串，返回0
+        if (!inputValue) {
+            return 0;
+        }
+        
+        // 简单的公式验证，只允许数字和基本运算符
+        if (!/^[\d+\-*/().\s]+$/.test(inputValue)) {
+            throw new Error('无效的公式格式，只允许数字和基本运算符 (+-*/)');
+        }
+        
+        // 尝试计算公式
+        try {
+            // 使用Function构造函数安全计算，避免eval的安全问题
+            const result = new Function('return ' + inputValue)();
+            if (isNaN(result) || !isFinite(result)) {
+                throw new Error('计算结果无效');
+            }
+            return Math.max(0, Math.round(result)); // 确保结果为非负整数
+        } catch (e) {
+            throw new Error('公式计算错误: ' + e.message);
+        }
+    }
     
     // 开始压缩按钮
     $('#start-compress-btn').on('click', function() {
@@ -848,7 +994,18 @@ $(document).ready(function() {
         
         // 获取配置
         const quality = parseInt($('#compression-quality').val());
-        const minSize = parseInt($('#min-file-size').val()) * 1024; // 转换为字节
+        
+        // 处理最小文件大小，支持公式输入
+        let minSizeKB = 0;
+        const minSizeInput = $('#min-file-size').val();
+        try {
+            minSizeKB = calculateInputValue(minSizeInput);
+        } catch (e) {
+            customAlert(e.message, '错误', 'error');
+            return;
+        }
+        const minSize = minSizeKB * 1024; // 转换为字节
+        
         const maxWorkers = parseInt($('#thread-count').val());
         
         // 隐藏配置模态框
@@ -908,7 +1065,20 @@ $(document).ready(function() {
                 $('#progress-overlay').hide();
                 // 设置处理标志位为false
                 isProcessing = false;
-                customAlert('压缩失败: ' + error, '错误');
+                // 获取更具体的错误信息
+                let errorMessage = error;
+                if (xhr.responseJSON && xhr.responseJSON.error) {
+                    errorMessage = xhr.responseJSON.error;
+                } else if (xhr.responseText) {
+                    try {
+                        const response = JSON.parse(xhr.responseText);
+                        errorMessage = response.error || errorMessage;
+                    } catch (e) {
+                        // 如果不是JSON格式，使用响应文本
+                        errorMessage = xhr.responseText;
+                    }
+                }
+                customAlert('压缩失败: ' + errorMessage, '错误', 'error');
             }
         });
     });
@@ -991,7 +1161,7 @@ $(document).ready(function() {
                 } else {
                     errorMessage += error;
                 }
-                customAlert(errorMessage, '错误');
+                customAlert(errorMessage, '错误', 'error');
             }
         });
     });
@@ -1024,13 +1194,26 @@ $(document).ready(function() {
                         // 不要立即显示关闭按钮，等待处理完成后由updateProgress自动处理
                     },
                     error: function(xhr, status, error) {
-                        log('error', '发送停止请求失败', error);
-                        // 重置停止请求标记
-                        isStopping = false;
-                        // 恢复按钮状态
-                        $('#stop-progress').prop('disabled', false).text('停止处理');
-                        customAlert('停止请求失败: ' + error, '错误');
-                    }
+            log('error', '发送停止请求失败', error);
+            // 重置停止请求标记
+            isStopping = false;
+            // 恢复按钮状态
+            $('#stop-progress').prop('disabled', false).text('停止处理');
+            // 获取更具体的错误信息
+            let errorMessage = error;
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMessage = xhr.responseJSON.error;
+            } else if (xhr.responseText) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.error || errorMessage;
+                } catch (e) {
+                    // 如果不是JSON格式，使用响应文本
+                    errorMessage = xhr.responseText;
+                }
+            }
+            customAlert('停止请求失败: ' + errorMessage, '错误', 'error');
+        }
                 });
             }
         });
@@ -1199,7 +1382,20 @@ function loadFiles(autoEnter = true, fromHistory = false) {
         },
         error: function(xhr, status, error) {
             log('error', '文件列表加载失败', error);
-            customAlert('加载文件失败: ' + error, '错误');
+            // 获取更具体的错误信息
+            let errorMessage = error;
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMessage = xhr.responseJSON.error;
+            } else if (xhr.responseText) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.error || errorMessage;
+                } catch (e) {
+                    // 如果不是JSON格式，使用响应文本
+                    errorMessage = xhr.responseText;
+                }
+            }
+            customAlert('加载文件失败: ' + errorMessage, '错误', 'error');
         }
     });
 }
@@ -1671,8 +1867,18 @@ function previewImage(path) {
                             if (xhr.responseJSON && xhr.responseJSON.error) {
                                 errorMsg = '查询地址失败: ' + xhr.responseJSON.error;
                                 log('error', '查询地址详细错误:', xhr.responseJSON.error);
+                            } else if (xhr.responseText) {
+                                try {
+                                    const response = JSON.parse(xhr.responseText);
+                                    errorMsg = '查询地址失败: ' + (response.error || error);
+                                } catch (e) {
+                                    // 如果不是JSON格式，使用响应文本
+                                    errorMsg = '查询地址失败: ' + xhr.responseText;
+                                }
+                            } else {
+                                errorMsg = '查询地址失败: ' + error;
                             }
-                            customAlert(errorMsg, '错误');
+                            customAlert(errorMsg, '错误', 'error');
                         },
                         complete: function() {
                             // 恢复按钮状态
@@ -1719,7 +1925,20 @@ function previewImage(path) {
             isModalPreviewLoading = false;
         },
         error: function(xhr, status, error) {
-            customAlert('预览图片失败: ' + error, '错误');
+            // 获取更具体的错误信息
+            let errorMessage = error;
+            if (xhr.responseJSON && xhr.responseJSON.error) {
+                errorMessage = xhr.responseJSON.error;
+            } else if (xhr.responseText) {
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.error || errorMessage;
+                } catch (e) {
+                    // 如果不是JSON格式，使用响应文本
+                    errorMessage = xhr.responseText;
+                }
+            }
+            customAlert('预览图片失败: ' + errorMessage, '错误', 'error');
             // 清除加载标志
             isModalPreviewLoading = false;
         }
@@ -1802,7 +2021,13 @@ function updateProgress() {
             }
             
             // 计算并更新进度条，精确到0.1%
-            const progress = response.total > 0 ? parseFloat(((response.processed / response.total) * 100).toFixed(1)) : 0;
+            let progress = 0;
+            if (response.status === 'completed') {
+                // 处理完成时，进度条显示100%
+                progress = 100;
+            } else if (response.total > 0) {
+                progress = parseFloat(((response.processed / response.total) * 100).toFixed(1));
+            }
             $('#progress-bar').css('width', progress + '%').attr('aria-valuenow', progress);
             $('#progress-percentage').text(progress + '%');
             
@@ -1863,11 +2088,32 @@ function updateProgress() {
                 // 计算压缩率
                 const compressionRate = response.original_size > 0 ? Math.round((1 - response.final_size / response.original_size) * 100) : 0;
                 
+                // 格式化文件大小，根据大小自动选择单位（KB, MB, GB）
+                function formatSize(sizeBytes) {
+                    if (sizeBytes === 0) return '0 B';
+                    const k = 1024;
+                    const sizes = ['B', 'KB', 'MB', 'GB'];
+                    const i = Math.floor(Math.log(sizeBytes) / Math.log(k));
+                    return parseFloat((sizeBytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+                }
+                
                 // 更新统计信息
                 $('#total-time').text(totalTime);
                 $('#original-size').text(originalSize);
                 $('#final-size').text(finalSize);
                 $('#compression-rate').text(compressionRate);
+                
+                // 仅在文件压缩的处理统计中显示被忽略的文件数量
+                if (response.task_type === 'compress' && response.ignored_count > 0) {
+                    // 格式化最小大小阈值
+                    const minSizeFormatted = formatSize(response.min_size);
+                    // 更新被忽略文件数量和阈值
+                    $('#ignored-files-count').text(response.ignored_count);
+                    $('#ignored-files-threshold').text(minSizeFormatted);
+                    $('#ignored-files-section').show();
+                } else {
+                    $('#ignored-files-section').hide();
+                }
                 
                 // 处理失败文件列表
                 const failedFiles = response.failed_files || [];

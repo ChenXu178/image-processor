@@ -303,7 +303,7 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 1000;
+    z-index: 12000;
 }
 
 /* 提高通用模态框的z-index，确保在进度弹窗之上 */
@@ -464,6 +464,22 @@ body {
 
 .statistics-result .format-item {
     margin: 5px 0;
+}
+
+/* 确保复选框和标签垂直居中 */
+.form-check {
+    display: flex;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.form-check-input {
+    margin-top: 2px;
+    margin-right: 0.5rem;
+}
+
+.form-check-label {
+    margin-bottom: 0;
 }
 
 /* 响应式设计 */

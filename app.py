@@ -1050,10 +1050,10 @@ def preview_file(filepath):
     # 验证文件
     if not os.path.isfile(full_path):
         logger.warning(f"文件不存在: {full_path}")
-        return 'File not found', 404
+        return '文件未找到', 404
     if not is_image_file(full_path):
         logger.warning(f"不是支持的文件类型: {full_path}")
-        return 'File not found', 404
+        return '不是支持的文件类型: {full_path}', 400
     
     # 检查文件扩展名
     ext = os.path.splitext(full_path)[1].lower()[1:]
@@ -1192,7 +1192,7 @@ def convert_tiff_preview():
     ext = os.path.splitext(full_path)[1].lower()[1:]
     if ext not in ['tiff', 'tif']:
         logger.warning(f"只有TIFF文件支持预览转换: {full_path}")
-        return 'Only TIFF files are supported for preview conversion', 400
+        return '仅支持TIFF文件预览转换', 400
     
     try:
         # 尝试打开图片，如果是截断的图片，使用ImageFile.LOAD_TRUNCATED_IMAGES选项
@@ -1220,7 +1220,7 @@ def convert_tiff_preview():
     except Exception as e:
         logger.error(f"转换TIFF图片失败: {type(e).__name__}: {str(e)}")
         logger.error(f"异常详情: {traceback.format_exc()}")
-        return 'Error converting TIFF to PNG', 500
+        return '转换TIFF到PNG失败', 500
 
 @app.route('/count_formats', methods=['POST'])
 def count_formats():
@@ -1292,7 +1292,7 @@ def count_formats():
         })
     except Exception as e:
         logger.error(f"统计文件格式失败: {e}")
-        return jsonify({'error': '统计文件格式失败: {e}'}), 500
+        return jsonify({'error': f'统计文件格式失败: {e}'}), 500
 
 @app.route('/fix_extensions', methods=['POST'])
 def fix_extensions():
@@ -1398,7 +1398,7 @@ def fix_extensions():
         })
     except Exception as e:
         logger.error(f"修复文件后缀失败: {e}")
-        return jsonify({'error': '修复文件后缀失败: {e}'}), 500
+        return jsonify({'error': f'修复文件后缀失败: {e}'}), 500
 
 @app.route('/search_files', methods=['POST'])
 def search_files():
@@ -1625,7 +1625,8 @@ def compress_images():
             'final_size': 0,
             'current_file': '',
             'failed_files': [],
-            'skipped_files': []
+            'skipped_files': [],
+            'task_type': 'convert'
         }
     
     # 获取所有图片文件
@@ -1645,13 +1646,19 @@ def compress_images():
     logger.info(f"共找到 {len(all_images)} 个图片文件")
     
     # 过滤小于指定大小的文件
+    ignored_count = 0
     if min_size > 0:
+        original_count = len(all_images)
         filtered_images = [img for img in all_images if get_file_size(img) > min_size]
-        logger.info(f"过滤后剩余 {len(filtered_images)} 个图片文件")
+        ignored_count = original_count - len(filtered_images)
+        logger.info(f"过滤后剩余 {len(filtered_images)} 个图片文件，忽略了 {ignored_count} 个小于最小大小的文件")
         all_images = filtered_images
     
     with progress_lock:
         progress_data['total'] = len(all_images) or total_selected or 1
+        progress_data['ignored_count'] = ignored_count
+        progress_data['min_size'] = min_size
+        progress_data['task_type'] = 'compress'
     
     # 如果没有图片需要处理，直接完成
     if len(all_images) == 0:
@@ -1838,7 +1845,8 @@ def convert_images():
             'final_size': 0,
             'current_file': '',
             'failed_files': [],
-            'skipped_files': []
+            'skipped_files': [],
+            'task_type': 'convert'
         }
     
     # 获取所有图片文件，排除目标格式
@@ -2151,7 +2159,7 @@ def download_file():
     
     if not file_path or not os.path.isfile(file_path):
         logger.warning(f"无效的文件路径: {file_path}")
-        return 'Invalid file path', 400
+        return '无效的文件路径', 400
     
     try:
         logger.info(f"返回文件: {file_path}")
