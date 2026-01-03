@@ -47,12 +47,18 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 # 暴露端口5000
 EXPOSE 5000
 
+# 接收构建参数
+ARG APP_NAME
+ARG APP_VERSION
+
 # 设置环境变量
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 ENV PUID=1000
 ENV PGID=1000
 ENV UMASK=022
+ENV APP_NAME=${APP_NAME}
+ENV APP_VERSION=${APP_VERSION}
 
 # 使用entrypoint脚本
 ENTRYPOINT ["entrypoint.sh"]

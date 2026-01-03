@@ -16,7 +16,7 @@ body {
     background-color: #fff;
     border-radius: 8px;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    padding: 20px;
+    padding: 20px 20px 0px 20px;
     min-height: calc(100vh - 40px);
     overflow: auto;
 }
@@ -51,7 +51,6 @@ body {
     background-color: #f8f9fa;
     border-radius: 8px;
     padding: 0;
-    max-height: 95vh;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -67,7 +66,7 @@ body {
 }
 
 .file-actions {
-    padding: 15px;
+    padding: 0 15px 15px 15px;
     margin-bottom: 0;
     background-color: #f8f9fa;
     border-bottom: 1px solid #e9ecef;
@@ -75,7 +74,7 @@ body {
 }
 
 .file-actions .btn {
-    margin-right: 10px;
+    margin: 15px 10px 0 0;
 }
 
 /* 文件列表 */
@@ -85,7 +84,7 @@ body {
     margin: 0;
     overflow-y: auto;
     flex-grow: 1;
-    max-height: calc(90vh - 100px);
+    height: calc(92vh - 100px);
 }
 
 .file-list-item {
@@ -130,9 +129,10 @@ body {
 .selected-files-container {
     background-color: #f8f9fa;
     border-radius: 8px;
-    padding: 20px;
-    max-height: 90vh;
-    overflow-y: auto;
+    padding: 20px 20px 0px 20px;
+    display: flex;
+    flex-direction: column;
+    height: 93vh;
 }
 
 .selected-files-container h3 {
@@ -145,15 +145,28 @@ body {
     list-style: none;
     padding: 0;
     margin: 0;
+    flex-grow: 1;
+    overflow-y: auto;
 }
 
 .selected-file-item {
     display: flex;
     align-items: center;
     padding: 10px 15px;
+    background-color: transparent;
+    border-bottom: 1px solid #e9ecef;
+    margin-bottom: 0;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.selected-file-item:hover {
     background-color: #e9ecef;
-    border-radius: 4px;
-    margin-bottom: 10px;
+}
+
+.selected-file-item .icon {
+    margin-right: 10px;
+    font-size: 18px;
 }
 
 .selected-file-item .filename {
@@ -164,12 +177,24 @@ body {
 }
 
 .selected-file-item .remove-btn {
-    margin-left: 10px;
+    margin-left: auto;
     background: none;
     border: none;
     color: #dc3545;
     cursor: pointer;
     font-size: 16px;
+    padding: 0;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.selected-file-item .remove-btn:hover {
+    color: #c82333;
+    background-color: rgba(220, 53, 69, 0.1);
+    border-radius: 2px;
 }
 
 .no-selection {
@@ -255,7 +280,7 @@ body {
     left: 50%;
     transform: translate(-50%, -50%);
     color: #fff;
-    font-size: 0.8em;
+    font-size: 14px;
     font-weight: bold;
     text-shadow: 0 0 2px rgba(0, 0, 0, 0.8);
     z-index: 100;
@@ -439,7 +464,7 @@ body {
     border-bottom: 2px solid #dee2e6;
     border-top: 0;
     padding: 8px;
-    text-align: left;
+    text-align: center;
     background-color: #f8f9fa;
 }
 
@@ -447,6 +472,7 @@ body {
 .statistics-result table td {
     border-bottom: 1px solid #dee2e6;
     padding: 8px;
+    text-align: center;
     background-color: #fff;
 }
 
@@ -482,20 +508,66 @@ body {
     margin-bottom: 0;
 }
 
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .main-container {
-        margin: 10px;
-        padding: 10px;
-    }
-    
-    .file-select-container,
-    .selected-files-container {
-        height: 400px;
-    }
-    
-    .compress-container,
-    .convert-container {
-        padding: 10px;
-    }
+.list-group-item {
+    padding: 5px 10px;
+}
+
+#search-results .pre-scrollable {
+    max-height: 50vh;
+}
+
+.rename-file-item {
+    padding: 8px 0; 
+    border-bottom: 1px solid #e9ecef; 
+    word-break: break-all; 
+    word-wrap: break-word;
+}
+
+#failed-files-section, 
+#skipped-files-section {
+    margin-top: 20px;
+    display: none;
+}
+
+#failed-files-title {
+    background-color: #dc3545; 
+    color: white; 
+    padding: 8px 12px; 
+    border-radius: 4px; 
+    display: inline-block;
+} 
+
+#skipped-files-title {
+    background-color: #ffc107; 
+    color: black; 
+    display: inline-block;
+    padding: 8px 12px; 
+    border-radius: 4px; 
+}
+
+#skipped-files, #failed-files {
+    max-height: 200px; 
+    background-color: #f8f9fa; 
+    padding-left: 10px; 
+    padding-right: 10px; 
+    border-radius: 4px; 
+    text-align: left;
+}
+
+.progress-file-item {
+    padding: 8px 0; 
+    border-bottom: 1px solid #e9ecef;
+    word-break: break-all; 
+    word-wrap: break-word;
+}
+
+/* 版本号显示样式 */
+.version-info {
+    padding-top: 5px;
+    padding-bottom: 5px;
+    font-size: 12px;
+    color: #6c757d;
+    text-align: center;
+    border-top: 1px solid #e9ecef;
+    width: 100%;
 }

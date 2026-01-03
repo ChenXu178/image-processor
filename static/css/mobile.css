@@ -1,0 +1,364 @@
+/* 移动端样式 */
+
+/* 针对小屏幕设备（宽度小于768px） */
+@media (max-width: 768px) {
+    /* 主容器 */
+    .main-container {
+        margin: 10px;
+        padding: 10px;
+    }
+    
+    /* 调整左右两栏布局为上下布局 */
+    .row {
+        display: flex;
+    }
+
+    .col-md-8 {
+        width: 100%;
+        max-width: 50%;
+        margin-bottom: 20px;
+    }
+
+    .col-md-4 {
+        width: 100%;
+        max-width: 50%;
+        flex: none;
+    }
+    
+    /* 文件选择容器 */
+    .file-select-container {
+        height: 92vh;
+    }
+    
+    /* 已选择文件容器 */
+    .selected-files-container {
+        height: 92vh;
+        padding: 15px 15px 0px 15px;
+    }
+
+    .selected-files-container h3 {
+        font-size: 18px;
+        margin-bottom: 5px;
+    }
+
+    .rename-file-item {
+        min-height: 30px;
+        padding: 2px 0; 
+        font-size: 12px;
+        display: flex;
+        align-items: center; 
+    }
+
+    .search-result-item-name {
+        font-size: 14px;
+    }
+    
+    /* 文件操作按钮 */
+    .file-actions {
+        padding: 0 10px 10px 10px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+    
+    .file-actions .btn {
+        margin: 10px 5px 0 0;
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+    
+    /* 文件列表项 */
+    .file-list-item {
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+    
+    /* 已选择文件列表项 */
+    .selected-file-item {
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+    
+    /* 模态框样式 */
+    .modal-dialog {
+        max-width: 90%;
+        margin: 10px auto;
+    }
+    
+    .modal-content {
+        padding: 0 15px 0 15px;
+    }
+    
+    .modal-header {
+        padding: 10px;
+    }
+    
+    .modal-title {
+        font-size: 18px;
+    }
+    
+    .modal-body {
+        padding: 20px 10px 10px 10px;
+    }
+    
+    .modal-footer {
+        padding: 10px;
+        justify-content: center;
+    }
+
+    #compress-modal .modal-content {
+        padding: 15px;
+    }
+
+    #convert-modal .modal-content {
+        padding: 15px;
+    }
+    
+    /* 表单元素 */
+    .form-group {
+        margin-bottom: 15px;
+    }
+    
+    .form-control {
+        padding: 10px;
+        font-size: 16px;
+    }
+
+    .convert-container .form-control {
+        padding: 0 10px 0 10px;
+        font-size: 16px;
+    }
+    
+    .form-control-range {
+        margin-bottom: 15px;
+    }
+    
+    /* 按钮样式 */
+    .modal-dialog .btn {
+        padding: 5px 10px;
+        font-size: 14px;
+    }
+
+    /* 搜索结果 */
+    .btn-group .btn {
+        padding: 4px 8px;
+        font-size: 12px;
+    }
+
+    .confirm-btns .btn {
+        margin: 0 40px;
+    }
+    
+    /* 标题样式 */
+    h3 {
+        font-size: 20px;
+        margin-bottom: 15px;
+    }
+    
+    /* 进度显示 */
+    .progress-content {
+        width: 95%;
+        max-height: 90vh;
+        padding: 20px;
+        overflow-y: auto;
+    }
+    
+    .progress-content h2 {
+        font-size: 20px;
+        margin-bottom: 15px;
+    }
+    
+    .progress-info p {
+        font-size: 14px;
+        margin: 8px 0;
+    }
+    
+    /* 统计信息 */
+    #statistics {
+        margin-top: 20px;
+        font-size: 14px;
+        overflow-y: auto;
+    }
+    
+    /* 失败文件列表和跳过文件列表 */
+    #failed-files-section {
+        margin-top: 0;
+    }
+
+    #failed-files-title, #skipped-files-title { 
+        padding: 4px 10px;
+        font-size: 14px;
+    } 
+    
+    #failed-files,
+    #skipped-files {
+        max-height: 10vh;
+        overflow-y: auto;
+        padding: 0 8px;
+    }
+
+    .progress-file-item {
+        min-height: 30px;
+        padding: 2px 0; 
+        font-size: 12px;
+        display: flex;
+        align-items: center; 
+    }
+    
+    /* 搜索结果 */
+    #search-results {
+        max-height: 55vh;
+    }
+
+    #search-results .pre-scrollable {
+        max-height: 40vh;
+    }
+
+    #search-results .text-muted {
+        font-size: 10px;
+    }
+
+    .list-group-item {
+        padding: 5px 10px;
+    }
+    
+    /* 统计结果 */
+    .statistics-result .table-responsive {
+        max-height: 60vh;
+    }
+    
+    /* 文件格式统计结果删除按钮 */
+    .delete-format-btn {
+        padding: 5px 8px;
+        font-size: 12px;
+        line-height: 1;
+    }
+    
+    /* 统计结果表格单元格 */
+    .statistics-result table td {
+        padding: 8px;
+        font-size: 14px;
+    }
+    
+    /* 统计结果表格标题 */
+    .statistics-result table th {
+        padding: 8px;
+        font-size: 14px;
+    }
+    
+    /* 版本号显示 */
+    .version-info {
+        font-size: 10px;
+        bottom: 5px;
+        right: 5px;
+    }
+    
+    /* 路径显示 */
+    .path-bar {
+        font-size: 14px;
+        padding: 8px 12px;
+    }
+    
+    /* 当前文件显示 */
+    .current-file-path {
+        font-size: 12px;
+        padding: 4px 6px;
+    }
+    
+}
+
+/* 针对超小屏幕设备（宽度小于480px） */
+@media (max-width: 480px) {
+    /* 主容器 */
+    .main-container {
+        margin: 5px;
+        padding: 5px;
+    }
+    
+    .col-md-8 {
+        width: 100%;
+        max-width: 100%;
+        margin-bottom: 20px;
+    }
+
+    .col-md-4 {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    /* 文件选择容器 */
+    .file-select-container {
+        height: 48vh;
+    }
+    
+    /* 已选择文件容器 */
+    .selected-files-container {
+        height: 45vh;
+        padding: 10px 10px 0px 10px;
+    }
+
+    .file-actions {
+        padding: 0 8px 5px 8px;
+    }
+    
+    /* 文件操作按钮 */
+    .file-actions .btn {
+        margin: 5px 3px 0 0;
+        font-size: 12px;
+    }
+    
+    /* 文件列表项和已选择文件列表项 */
+    .file-list-item,
+    .selected-file-item {
+        padding: 6px 10px;
+        font-size: 12px;
+    }
+    
+    /* 图标大小 */
+    .icon {
+        font-size: 16px;
+        margin-right: 8px;
+    }
+    
+    /* 文件名和文件大小 */
+    .filename {
+        font-size: 12px;
+    }
+    
+    .filesize {
+        font-size: 12px;
+        margin-left: 8px;
+    }
+    
+    /* 移除按钮 */
+    .remove-btn {
+        font-size: 14px;
+        width: 18px;
+        height: 18px;
+    }
+    
+    /* 统计信息 */
+    #statistics {
+        font-size: 12px;
+    }
+    
+    /* 文件格式统计结果删除按钮 */
+    .delete-format-btn {
+        padding: 3px 10px;
+        font-size: 12px;
+        line-height: 1;
+    }
+    
+    /* 统计结果表格单元格 */
+    .statistics-result table td {
+        padding: 6px;
+        font-size: 12px;
+    }
+    
+    /* 统计结果表格标题 */
+    .statistics-result table th {
+        padding: 6px;
+        font-size: 12px;
+    }
+    
+}

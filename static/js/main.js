@@ -277,6 +277,18 @@ $(document).ready(function() {
     log('debug', 'statistics exists:', $('#statistics').length > 0);
     log('debug', 'close-progress exists:', $('#close-progress').length > 0);
     
+    // 获取并显示版本号
+    $.ajax({
+        url: '/get_version',
+        type: 'GET',
+        success: function(response) {
+            $('#app-version').text(response.version);
+        },
+        error: function() {
+            $('#app-version').text('未知');
+        }
+    });
+    
     // 压缩率滑块
     $('#compression-quality').on('input', function() {
         $('#quality-value').text($(this).val());
@@ -455,18 +467,18 @@ $(document).ready(function() {
                 resultHtml += '</div>';
                 
                 if (response.files.length > 0) {
-                    resultHtml += '<div class="pre-scrollable" style="max-height: 500px;">';
+                    resultHtml += '<div class="pre-scrollable">';
                     resultHtml += '<div class="list-group">';
                     
                     // 遍历搜索结果生成列表项
                     for (const file of response.files) {
                         const isImage = supportedFormats.includes(file.ext.toLowerCase());
-                        const previewBtn = isImage ? '<button class="btn btn-info btn-sm preview-btn ml-1" data-path="' + file.path + '" title="预览">预览</button>' : '';
+                        const previewBtn = isImage ? '<button class="btn btn-info btn-sm preview-btn" data-path="' + file.path + '" title="预览">预览</button>' : '';
                         
                         resultHtml += '<div class="list-group-item list-group-item-action">';
                         resultHtml += '<div class="d-flex justify-content-between align-items-center">';
 
-                        resultHtml += '<div style="flex: 1; min-width: 0;">';
+                        resultHtml += '<div class="search-result-item-name" style="flex: 1; min-width: 0;">';
                         resultHtml += '<strong>' + file.name + '</strong>';
                         resultHtml += '<br>';
                         resultHtml += '<small class="text-muted" style="word-break: break-all; word-wrap: break-word; max-width: 95%; display: inline-block;">' + file.path + '</small>';
@@ -817,7 +829,7 @@ $(document).ready(function() {
                     let skippedHtml = '';
                     for (let i = 0; i < skippedFiles.length; i++) {
                         const file = skippedFiles[i];
-                        skippedHtml += `<div style="padding: 8px 0; border-bottom: 1px solid #e9ecef; word-break: break-all; word-wrap: break-word;">${file}</div>`;
+                        skippedHtml += `<div class="rename-file-item">${file}</div>`;
                     }
                     
                     // 设置文件列表内容
@@ -840,7 +852,7 @@ $(document).ready(function() {
                         const file = failedFiles[i];
                         const filePath = file.path || '未知路径';
                         const fileError = file.error || '未知错误';
-                        failedHtml += `<div style="padding: 8px 0; border-bottom: 1px solid #e9ecef; word-break: break-all; word-wrap: break-word;"><strong>${filePath}</strong>: ${fileError}</div>`;
+                        failedHtml += `<div class="rename-file-item"><strong>${filePath}</strong>: ${fileError}</div>`;
                     }
                     
                     // 设置文件列表内容
@@ -1224,7 +1236,7 @@ $(document).ready(function() {
         // 重置进度相关DOM元素
         $('#total-files').text('0');
         $('#processed-files').text('0');
-        $('#current-file').text('');
+        $('#current-file-path').text('');
         $('#progress-bar').css('width', '0%').attr('aria-valuenow', '0');
         
         // 重置进度标题
@@ -1647,9 +1659,9 @@ function updateSelectedFilesList() {
             // 添加图标，文件夹显示📁，文件显示🖼️
             const icon = isDir ? '📁' : '🖼️';
             selectedHtml += '<div class="selected-file-item" data-path="' + path + '">';
-            selectedHtml += '<span class="file-icon">' + icon + '</span>';
+            selectedHtml += '<span class="icon">' + icon + '</span>';
             selectedHtml += '<span class="filename">' + filename + '</span>';
-            selectedHtml += '<button class="remove-btn" title="移除">&times;</button>';
+            selectedHtml += '<button class="remove-btn" title="移除">❌️</button>';
             selectedHtml += '</div>';
         }
         $('#selected-files-list').html(selectedHtml);
@@ -2014,10 +2026,10 @@ function updateProgress() {
             let truncatedPath = '';
             if (response.status === 'running') {
                 truncatedPath = truncatePath(currentFile, 80); // 设置最大显示长度为80个字符
-                $('#current-file').text(truncatedPath);
+                $('#current-file-path').text(truncatedPath);
             } else {
                 // 当处理完成或空闲时，清空当前文件显示
-                $('#current-file').text('');
+                $('#current-file-path').text('');
             }
             
             // 计算并更新进度条，精确到0.1%
@@ -2043,6 +2055,8 @@ function updateProgress() {
             // 处理进度状态
             if (response.status === 'running') {
                 log('debug', '进度状态为running，显示进度窗口');
+                // 处理运行中，更新当前文件路径显示
+                $('#current-file').show();
                 // 处理运行中，显示进度窗口
                 $('#progress-overlay').show();
                 // 显示停止按钮，隐藏关闭按钮
@@ -2065,6 +2079,10 @@ function updateProgress() {
                 }
             } else if (response.status === 'completed') {
                 log('debug', '进度状态为completed，显示统计信息');
+
+                // 处理完成后，清空当前文件显示
+                $('#current-file').hide();
+
                 // 隐藏停止按钮，显示关闭按钮
                 $('#stop-progress').hide();
                 // 处理完成后，重置停止按钮状态，确保下次显示时是正常状态
@@ -2123,7 +2141,7 @@ function updateProgress() {
                     $('#failed-files-count').text(failedCount);
                     let failedHtml = '';
                     for (const file of failedFiles) {
-                        failedHtml += `<div style="padding: 8px 0; border-bottom: 1px solid #e9ecef; word-break: break-all; word-wrap: break-word;">${file}</div>`;
+                        failedHtml += `<div class="progress-file-item">${file}</div>`;
                     }
                     $('#failed-files').html(failedHtml);
                 } else {
@@ -2139,7 +2157,7 @@ function updateProgress() {
                     $('#skipped-files-count').text(skippedCount);
                     let skippedHtml = '';
                     for (const file of skippedFiles) {
-                        skippedHtml += `<div style="padding: 8px 0; border-bottom: 1px solid #e9ecef; word-break: break-all; word-wrap: break-word;">${file}</div>`;
+                        skippedHtml += `<div class="progress-file-item">${file}</div>`;
                     }
                     $('#skipped-files').html(skippedHtml);
                 } else {

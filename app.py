@@ -48,6 +48,38 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# 获取应用版本号
+def get_app_version():
+    """
+    获取应用版本号，优先从git命令获取，失败则从环境变量获取，最后使用默认值
+    """
+    # 尝试从git命令获取版本号
+    try:
+        # 执行git命令获取最新tag
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--always'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        git_version = result.stdout.strip()
+        if git_version:
+            return git_version
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # git命令执行失败，从环境变量获取
+        logger.warning("从git获取版本号失败，尝试从环境变量获取")
+    
+    # 尝试从环境变量获取版本号
+    env_version = os.environ.get('APP_VERSION')
+    if env_version:
+        return env_version
+    
+    # 最后使用默认值
+    return '未知'
+
+# 初始化应用版本号
+APP_VERSION = get_app_version()
+
 # 导入geopy库用于地址查询
 from geopy.geocoders import Nominatim
 
@@ -2239,6 +2271,15 @@ def get_config():
     cpu_count = os.cpu_count() or 4  # 默认为4
     logger.info(f"获取CPU核心数: {cpu_count}")
     return jsonify({'base_dir': BASE_DIR, 'cpu_count': cpu_count})
+
+@app.route('/get_version')
+def get_version():
+    """
+    获取应用版本号
+    返回: JSON格式的版本号信息
+    """
+    logger.info(f"获取应用版本号: {APP_VERSION}")
+    return jsonify({'version': APP_VERSION})
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
