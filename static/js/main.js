@@ -706,7 +706,7 @@ $(document).ready(function() {
                     const count = response.format_count[format];
                     
                     // 显示确认对话框
-                    customConfirm(`确定要删除所有${format.toUpperCase()}格式的文件吗？共${count}个文件将被删除，此操作不可恢复！`, function(confirmed) {
+                    customConfirm(`确定要删除所有${format}格式的文件吗？共${count}个文件将被删除，此操作不可恢复！`, function(confirmed) {
                         if (confirmed) {
                             // 显示加载动画
                             $('#loading').show();
