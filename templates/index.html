@@ -244,19 +244,21 @@
                     </button>
                 </div>
                 <div class="modal-body">
-                    <div class="form-group">
-                        <label for="search-pattern">关键字 (支持正则表达式)</label>
-                        <input type="text" class="form-control" id="search-pattern" placeholder="例如: .*\.jpg$">
-                    </div>
-                    <div class="form-group form-check">
-                        <input type="checkbox" class="form-check-input" id="search-regex">
-                        <label class="form-check-label" for="search-regex">使用正则表达式</label>
-                    </div>
-                    <div class="form-group form-check">
-                        <input type="checkbox" class="form-check-input" id="search-case-sensitive">
-                        <label class="form-check-label" for="search-case-sensitive">区分大小写</label>
-                    </div>
-                    <button type="button" id="start-search-btn" class="btn btn-primary">开始搜索</button>
+                    <form id="search-form" onsubmit="return false;">
+                        <div class="form-group">
+                            <label for="search-pattern">关键字 (支持正则表达式)</label>
+                            <input type="search" class="form-control" id="search-pattern" placeholder="例如: .*\.jpg$" enterkeyhint="search" autocomplete="off">
+                        </div>
+                        <div class="form-group form-check">
+                            <input type="checkbox" class="form-check-input" id="search-regex">
+                            <label class="form-check-label" for="search-regex">使用正则表达式</label>
+                        </div>
+                        <div class="form-group form-check">
+                            <input type="checkbox" class="form-check-input" id="search-case-sensitive">
+                            <label class="form-check-label" for="search-case-sensitive">区分大小写</label>
+                        </div>
+                        <button type="button" id="start-search-btn" class="btn btn-primary">开始搜索</button>
+                    </form>
                     <div id="search-results" class="mt-3">
                         <!-- 搜索结果将通过JS动态生成 -->
                     </div>

@@ -442,6 +442,14 @@ $(document).ready(function() {
         $('#search-modal').modal('show');
     });
     
+    // 搜索输入框回车事件
+    $('#search-pattern').on('keypress', function(e) {
+        if (e.which === 13) { // 回车键的keyCode是13
+            e.preventDefault();
+            $('#start-search-btn').click(); // 触发搜索按钮点击事件
+        }
+    });
+    
     // 开始搜索按钮
     $('#start-search-btn').on('click', function() {
         const pattern = $('#search-pattern').val();
@@ -722,7 +730,7 @@ $(document).ready(function() {
                                 }),
                                 success: function(response) {
                                     $('#loading').hide();
-                                    customAlert(`成功删除${response.deleted_count}个${format.toUpperCase()}格式的文件`);
+                                    customAlert(`成功删除${response.deleted_count}个${format}格式的文件`);
                                     // 刷新文件列表
                                     loadFiles();
                                     // 隐藏被删除的文件类型行，不关闭模态框
