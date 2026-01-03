@@ -13,12 +13,14 @@
         display: flex;
     }
 
+    /* 主内容区列布局 */
     .col-md-8 {
         width: 100%;
         max-width: 50%;
         margin-bottom: 20px;
     }
 
+    /* 侧边栏列布局 */
     .col-md-4 {
         width: 100%;
         max-width: 50%;
@@ -36,11 +38,13 @@
         padding: 15px 15px 0px 15px;
     }
 
+    /* 已选择文件容器标题 */
     .selected-files-container h3 {
         font-size: 18px;
         margin-bottom: 5px;
     }
 
+    /* 重命名文件项 */
     .rename-file-item {
         min-height: 30px;
         padding: 2px 0; 
@@ -49,6 +53,7 @@
         align-items: center; 
     }
 
+    /* 搜索结果项名称 */
     .search-result-item-name {
         font-size: 14px;
     }
@@ -61,6 +66,7 @@
         gap: 5px;
     }
     
+    /* 文件操作按钮样式 */
     .file-actions .btn {
         margin: 10px 5px 0 0;
         padding: 8px 12px;
@@ -84,32 +90,39 @@
         max-width: 90%;
         margin: 10px auto;
     }
-    
+
+    /* 模态框内容样式 */
     .modal-content {
         padding: 0 15px 0 15px;
     }
-    
+
+    /* 模态框头部样式 */
     .modal-header {
         padding: 10px;
     }
-    
+
+    /* 模态框标题样式 */
     .modal-title {
         font-size: 18px;
     }
-    
+
+    /* 模态框主体样式 */
     .modal-body {
         padding: 20px 10px 10px 10px;
     }
-    
+
+    /* 模态框底部样式 */
     .modal-footer {
         padding: 10px;
         justify-content: center;
     }
 
+    /* 压缩模态框内容样式 */
     #compress-modal .modal-content {
         padding: 15px;
     }
 
+    /* 转换模态框内容样式 */
     #convert-modal .modal-content {
         padding: 15px;
     }
@@ -119,32 +132,36 @@
         margin-bottom: 15px;
     }
     
+    /* 表单控件样式 */
     .form-control {
         padding: 10px;
         font-size: 16px;
     }
 
+    /* 转换容器表单控件 */
     .convert-container .form-control {
         padding: 0 10px 0 10px;
         font-size: 16px;
     }
     
+    /* 表单范围控件 */
     .form-control-range {
         margin-bottom: 15px;
     }
     
-    /* 按钮样式 */
+    /* 模态框按钮样式 */
     .modal-dialog .btn {
         padding: 5px 10px;
         font-size: 14px;
     }
 
-    /* 搜索结果 */
+    /* 按钮组按钮样式 */
     .btn-group .btn {
         padding: 4px 8px;
         font-size: 12px;
     }
 
+    /* 确认按钮样式 */
     .confirm-btns .btn {
         margin: 0 40px;
     }
@@ -155,7 +172,7 @@
         margin-bottom: 15px;
     }
     
-    /* 进度显示 */
+    /* 进度显示容器 */
     .progress-content {
         width: 95%;
         max-height: 90vh;
@@ -163,11 +180,13 @@
         overflow-y: auto;
     }
     
+    /* 进度显示标题 */
     .progress-content h2 {
         font-size: 20px;
         margin-bottom: 15px;
     }
     
+    /* 进度信息段落 */
     .progress-info p {
         font-size: 14px;
         margin: 8px 0;
@@ -180,23 +199,32 @@
         overflow-y: auto;
     }
     
-    /* 失败文件列表和跳过文件列表 */
+    /* 失败文件列表区域 */
     #failed-files-section {
         margin-top: 0;
     }
 
+    /* 失败文件和跳过文件标题 */
     #failed-files-title, #skipped-files-title { 
         padding: 4px 10px;
         font-size: 14px;
     } 
     
-    #failed-files,
+    /* 失败文件列表 */
+    #failed-files {
+        max-height: 10vh;
+        overflow-y: auto;
+        padding: 0 8px;
+    }
+    
+    /* 跳过文件列表 */
     #skipped-files {
         max-height: 10vh;
         overflow-y: auto;
         padding: 0 8px;
     }
 
+    /* 进度文件项 */
     .progress-file-item {
         min-height: 30px;
         padding: 2px 0; 
@@ -205,24 +233,27 @@
         align-items: center; 
     }
     
-    /* 搜索结果 */
+    /* 搜索结果容器 */
     #search-results {
         max-height: 55vh;
     }
 
+    /* 搜索结果可滚动区域 */
     #search-results .pre-scrollable {
         max-height: 40vh;
     }
 
+    /* 搜索结果文本样式 */
     #search-results .text-muted {
         font-size: 10px;
     }
 
+    /* 列表组项样式 */
     .list-group-item {
         padding: 5px 10px;
     }
     
-    /* 统计结果 */
+    /* 统计结果表格容器 */
     .statistics-result .table-responsive {
         max-height: 60vh;
     }
@@ -265,39 +296,47 @@
         padding: 4px 6px;
     }
 
+    /* 图片信息容器 */
     #image-info {
         padding: 5px 15px;
     }
 
+    /* EXIF切换按钮 */
     #toggle-exif-btn {
         font-size: 12px;
         margin-bottom: 0;
     }
 
+    /* EXIF标题 */
     #exif-title {
         margin: 10px 0;
         border-bottom: 1px solid #eee; 
         padding-bottom: 5px;
     }
 
+    /* EXIF信息容器 */
     .exif-info {
         gap: 8px;
     }
 
+    /* EXIF信息项 */
     .exif-item {
         padding: 0; 
     }
 
+    /* EXIF信息项键 */
     .exif-item-key {
         font-size: 12px;
         margin-bottom: 0;
     }
 
+    /* EXIF GPS按钮 */
     .modal-dialog .exif-item-gps-btn {
         padding: 2px 4px;
         font-size: 10px;
     }
     
+    /* EXIF信息项值 */
     .exif-item-value {
         font-size: 12px;
     }
@@ -311,87 +350,91 @@
         padding: 5px;
     }
     
+    /* 主内容区列布局 - 超小屏幕 */
     .col-md-8 {
         width: 100%;
         max-width: 100%;
         margin-bottom: 20px;
     }
 
+    /* 侧边栏列布局 - 超小屏幕 */
     .col-md-4 {
         width: 100%;
         max-width: 100%;
     }
 
-    /* 文件选择容器 */
+    /* 文件选择容器 - 超小屏幕 */
     .file-select-container {
         height: 48vh;
     }
     
-    /* 已选择文件容器 */
+    /* 已选择文件容器 - 超小屏幕 */
     .selected-files-container {
         height: 45vh;
         padding: 10px 10px 0px 10px;
     }
 
+    /* 文件操作按钮组 - 超小屏幕 */
     .file-actions {
         padding: 0 8px 5px 8px;
     }
     
-    /* 文件操作按钮 */
+    /* 文件操作按钮 - 超小屏幕 */
     .file-actions .btn {
         margin: 5px 3px 0 0;
         font-size: 12px;
     }
     
-    /* 文件列表项和已选择文件列表项 */
+    /* 文件列表项和已选择文件列表项 - 超小屏幕 */
     .file-list-item,
     .selected-file-item {
         padding: 6px 10px;
         font-size: 12px;
     }
     
-    /* 图标大小 */
+    /* 图标大小 - 超小屏幕 */
     .icon {
         font-size: 16px;
         margin-right: 8px;
     }
     
-    /* 文件名和文件大小 */
+    /* 文件名样式 - 超小屏幕 */
     .filename {
         font-size: 12px;
     }
     
+    /* 文件大小样式 - 超小屏幕 */
     .filesize {
         font-size: 12px;
         margin-left: 8px;
     }
     
-    /* 移除按钮 */
+    /* 移除按钮 - 超小屏幕 */
     .remove-btn {
         font-size: 14px;
         width: 18px;
         height: 18px;
     }
     
-    /* 统计信息 */
+    /* 统计信息 - 超小屏幕 */
     #statistics {
         font-size: 12px;
     }
     
-    /* 文件格式统计结果删除按钮 */
+    /* 文件格式统计结果删除按钮 - 超小屏幕 */
     .delete-format-btn {
         padding: 3px 10px;
         font-size: 12px;
         line-height: 1;
     }
     
-    /* 统计结果表格单元格 */
+    /* 统计结果表格单元格 - 超小屏幕 */
     .statistics-result table td {
         padding: 6px;
         font-size: 12px;
     }
     
-    /* 统计结果表格标题 */
+    /* 统计结果表格标题 - 超小屏幕 */
     .statistics-result table th {
         padding: 6px;
         font-size: 12px;

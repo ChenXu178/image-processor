@@ -6,6 +6,7 @@ body {
     padding: 0;
 }
 
+/* 全局容器 */
 .container-fluid {
     padding: 0;
 }
@@ -100,6 +101,7 @@ body {
     background-color: #e9ecef;
 }
 
+/* 文件列表项复选框 */
 .file-list-item .checkbox {
     margin-right: 10px;
     width: 18px;
@@ -107,11 +109,13 @@ body {
     cursor: pointer;
 }
 
+/* 文件列表项图标 */
 .file-list-item .icon {
     margin-right: 10px;
     font-size: 18px;
 }
 
+/* 文件列表项文件名 */
 .file-list-item .filename {
     flex: 1;
     overflow: hidden;
@@ -119,6 +123,7 @@ body {
     white-space: nowrap;
 }
 
+/* 文件列表项文件大小 */
 .file-list-item .filesize {
     color: #6c757d;
     font-size: 14px;
@@ -164,11 +169,13 @@ body {
     background-color: #e9ecef;
 }
 
+/* 已选择文件项图标 */
 .selected-file-item .icon {
     margin-right: 10px;
     font-size: 18px;
 }
 
+/* 已选择文件项文件名 */
 .selected-file-item .filename {
     flex: 1;
     overflow: hidden;
@@ -176,6 +183,7 @@ body {
     white-space: nowrap;
 }
 
+/* 已选择文件项移除按钮 */
 .selected-file-item .remove-btn {
     margin-left: auto;
     background: none;
@@ -191,12 +199,14 @@ body {
     justify-content: center;
 }
 
+/* 已选择文件项移除按钮悬停效果 */
 .selected-file-item .remove-btn:hover {
     color: #c82333;
     background-color: rgba(220, 53, 69, 0.1);
     border-radius: 2px;
 }
 
+/* 无选择提示 */
 .no-selection {
     color: #6c757d;
     text-align: center;
@@ -212,20 +222,24 @@ body {
     padding: 0;
 }
 
+/* 卡片样式 */
 .card {
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
+/* 卡片头部样式 */
 .card-header {
     background-color: #007bff;
     color: #fff;
     font-weight: 600;
 }
 
+/* 表单组样式 */
 .form-group {
     margin-bottom: 20px;
 }
 
+/* 表单范围控件样式 */
 .form-control-range {
     margin-bottom: 10px;
 }
@@ -306,22 +320,26 @@ body {
     text-align: left;
 }
 
+/* EXIF切换按钮 */
 #toggle-exif-btn {
     margin-bottom: 10px;
 }
 
+/* EXIF信息项 */
 .exif-item {
     background: #f8f9fa; 
     padding: 8px; 
     border-radius: 4px;
 }
 
+/* 统计信息 */
 #statistics {
     margin-top: 30px;
     padding-top: 20px;
     border-top: 1px solid #495057;
 }
 
+/* 统计信息标题 */
 #statistics h3 {
     margin-bottom: 20px;
     font-size: 20px;
@@ -346,21 +364,25 @@ body {
     z-index: 10999 !important;
 }
 
+/* 模态框显示时的z-index */
 .modal.show {
     z-index: 11000 !important;
 }
 
+/* 警告和确认模态框的z-index */
 #alert-modal,
 #confirm-modal {
     z-index: 11000 !important;
 }
 
+/* 警告、确认和图片预览模态框对话框的z-index */
 #alert-modal .modal-dialog,
 #confirm-modal .modal-dialog,
 #image-preview-modal .modal-dialog {
     z-index: 11001 !important;
 }
 
+/* 图片预览模态框的z-index */
 #image-preview-modal {
     z-index: 11002 !important;
 }
@@ -379,38 +401,44 @@ body {
     transition: opacity 0.10s linear !important;
 }
 
+/* 模态框覆盖层显示样式 */
 .modal-overlay.show {
     opacity: 1;
     transition: opacity 0.10s linear !important;
 }
 
-/* 进度弹窗中的文件列表样式 */
+/* 进度弹窗中失败文件标题样式 */
 .progress-overlay #failed-files-section h6 {
     background-color: #dc3545 !important;
     color: white !important;
 }
 
+/* 进度弹窗中跳过文件标题样式 */
 .progress-overlay #skipped-files-section h6 {
     background-color: #ffc107 !important;
     color: black !important;
 }
 
+/* 进度弹窗中可滚动区域样式 */
 .progress-overlay .pre-scrollable {
     background-color: rgba(255, 255, 255, 0.1) !important;
     color: #fff !important;
     text-align: left !important;
 }
 
+/* 进度弹窗中可滚动区域内div样式 */
 .progress-overlay .pre-scrollable div {
     border-color: rgba(255, 255, 255, 0.2) !important;
     color: #fff !important;
     text-align: left !important;
 }
 
+/* 加载动画内容样式 */
 .loading-content {
     text-align: center;
 }
 
+/* 加载动画 spinner 样式 */
 .loading-content .spinner-border {
     width: 5rem;
     height: 5rem;
@@ -424,23 +452,27 @@ body {
     margin-right: auto;
 }
 
+/* 图片信息容器 */
 #image-info {
     background-color: #f8f9fa;
     padding: 10px 15px;
     border-radius: 4px;
 }
 
+/* 图片信息段落 */
 #image-info p {
     margin: 5px 0;
     font-size: 14px;
 }
 
+/* EXIF标题 */
 #exif-title {
     margin: 10px 0;
     border-bottom: 1px solid #eee; 
     padding-bottom: 5px;
 }
 
+/* EXIF信息网格布局 */
 .exif-info {
     display: grid; 
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
@@ -448,18 +480,19 @@ body {
     font-size: 14px;
 }
 
+/* EXIF信息项键 */
 .exif-item-key {
     display: block; 
     color: #495057; 
     margin-bottom: 2px;
-
-    /* color: #495057; margin-bottom: 2px; display: inline-block; */
 }
 
+/* EXIF GPS信息项键 */
 .exif-item-gps-key {
     display: inline-block;
 }
 
+/* EXIF GPS按钮 */
 .exif-item-gps-btn {
     margin-left: 8px; 
     margin-bottom: 4px; 
@@ -470,6 +503,7 @@ body {
     font-size: 12px;
 }
 
+/* EXIF信息项值 */
 .exif-item-value {
     color: #6c757d; 
     display: block;
@@ -538,6 +572,7 @@ body {
     margin-bottom: 15px !important;
 }
 
+/* 统计结果格式项 */
 .statistics-result .format-item {
     margin: 5px 0;
 }
@@ -549,23 +584,28 @@ body {
     margin-bottom: 15px;
 }
 
+/* 复选框输入框 */
 .form-check-input {
     margin-top: 2px;
     margin-right: 0.5rem;
 }
 
+/* 复选框标签 */
 .form-check-label {
     margin-bottom: 0;
 }
 
+/* 列表组项样式 */
 .list-group-item {
     padding: 5px 10px;
 }
 
+/* 搜索结果可滚动区域 */
 #search-results .pre-scrollable {
     max-height: 50vh;
 }
 
+/* 重命名文件项样式 */
 .rename-file-item {
     padding: 8px 0; 
     border-bottom: 1px solid #e9ecef; 
@@ -573,12 +613,15 @@ body {
     word-wrap: break-word;
 }
 
+/* 失败文件区域 */
 #failed-files-section, 
+/* 跳过文件区域 */
 #skipped-files-section {
     margin-top: 20px;
     display: none;
 }
 
+/* 失败文件标题 */
 #failed-files-title {
     background-color: #dc3545; 
     color: white; 
@@ -587,6 +630,7 @@ body {
     display: inline-block;
 } 
 
+/* 跳过文件标题 */
 #skipped-files-title {
     background-color: #ffc107; 
     color: black; 
@@ -595,7 +639,10 @@ body {
     border-radius: 4px; 
 }
 
-#skipped-files, #failed-files {
+/* 跳过文件列表 */
+#skipped-files, 
+/* 失败文件列表 */
+#failed-files {
     max-height: 200px; 
     background-color: #f8f9fa; 
     padding-left: 10px; 
@@ -604,6 +651,7 @@ body {
     text-align: left;
 }
 
+/* 进度文件项 */
 .progress-file-item {
     padding: 8px 0; 
     border-bottom: 1px solid #e9ecef;
