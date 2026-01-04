@@ -315,8 +315,32 @@ $(document).ready(function() {
     
     // 返回上级按钮
     $('#back-btn').on('click', function() {
-        log('info', '返回上级按钮点击，当前路径: ' + currentPath + ', 基础目录: ' + baseDir);
-        if (currentPath !== baseDir) {
+        log('info', '返回上级按钮点击，当前路径: ' + currentPath + ', 基础目录: ' + baseDir + ', 历史记录: ' + JSON.stringify(history) + ', 历史索引: ' + historyIndex);
+        
+        // 检查历史记录是否为空
+        if (history.length === 0) {
+            log('info', '历史记录为空，无法返回上级');
+            return;
+        }
+        
+        // 如果当前索引大于0，从历史记录中获取上一个路径
+        if (historyIndex > 0) {
+            // 减少历史索引
+            historyIndex--;
+            // 从历史记录中获取上一个路径
+            const backPath = history[historyIndex];
+            log('info', '从历史记录返回，历史索引: ' + historyIndex + ', 目标路径: ' + backPath);
+            
+            // 设置当前路径
+            currentPath = backPath;
+            
+            // 立即更新当前路径显示
+            $('#current-path').text(currentPath);
+            
+            // 回到上级目录时不自动进入子文件夹，并且从历史记录加载
+            loadFiles(false, true);
+        } else if (currentPath !== baseDir) {
+            // 如果当前是第一条历史记录，但不是根目录，计算父路径
             // 同时处理Windows和Unix路径分隔符
             const lastSeparatorIndex = Math.max(
                 currentPath.lastIndexOf('/'),
@@ -324,31 +348,25 @@ $(document).ready(function() {
             );
             if (lastSeparatorIndex > 0) {
                 const parentPath = currentPath.substring(0, lastSeparatorIndex);
-                log('info', '当前路径: ' + currentPath + ', 父路径: ' + parentPath);
-                
-                // 检查当前索引是否大于0
-                if (historyIndex > 0) {
-                    // 如果有前进历史记录，直接减少索引
-                    historyIndex--;
-                    log('info', '历史记录索引减少: ' + historyIndex);
-                } else {
-                    // 如果当前是第一个记录，保持索引为0
-                    log('info', '历史记录索引保持为0');
-                }
+                log('info', '计算父路径，当前路径: ' + currentPath + ', 父路径: ' + parentPath);
                 
                 // 设置当前路径为父路径
                 currentPath = parentPath;
                 
                 // 立即更新当前路径显示
                 $('#current-path').text(currentPath);
+                
+                // 回到上级目录时不自动进入子文件夹，并且从历史记录加载
+                loadFiles(false, true);
             } else {
                 // 如果已经是根目录，保持不变
                 currentPath = baseDir;
                 historyIndex = 0;
+                // 立即更新当前路径显示
+                $('#current-path').text(currentPath);
+                // 回到上级目录时不自动进入子文件夹，并且从历史记录加载
+                loadFiles(false, true);
             }
-            // 回到上级目录时不自动进入子文件夹，并且从历史记录加载
-            log('info', '加载父路径: ' + currentPath + ', fromHistory: true, 新索引: ' + historyIndex);
-            loadFiles(false, true);
         } else {
             log('info', '已经是根目录，无法返回上级');
         }
