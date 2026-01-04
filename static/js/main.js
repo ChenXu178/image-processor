@@ -438,6 +438,8 @@ $(document).ready(function() {
     
     // 搜索文件按钮
     $('#search-btn').on('click', function() {
+        // 关闭当前可能显示的悬浮预览
+        hideHoverPreview();
         // 显示搜索模态框
         $('#search-modal').modal('show');
     });
@@ -644,6 +646,8 @@ $(document).ready(function() {
     
     // 统计文件格式按钮
     $('#count-formats-btn').on('click', function() {
+        // 关闭当前可能显示的悬浮预览
+        hideHoverPreview();
         // 显示加载动画
         $('#loading').show();
         
@@ -793,6 +797,8 @@ $(document).ready(function() {
     
     // 修复文件后缀按钮
     $('#fix-extensions-btn').on('click', function() {
+        // 关闭当前可能显示的悬浮预览
+        hideHoverPreview();
         if (selectedFiles.length === 0) {
             customAlert('请先选择文件或文件夹');
             return;
@@ -939,6 +945,8 @@ $(document).ready(function() {
     
     // 清理空文件夹按钮
     $('#clean-empty-folders-btn').on('click', function() {
+        // 关闭当前可能显示的悬浮预览
+        hideHoverPreview();
         if (selectedFiles.length === 0) {
             customAlert('请先选择文件或文件夹');
             return;
@@ -995,12 +1003,16 @@ $(document).ready(function() {
     
     // 图片压缩按钮
     $('#compress-btn').on('click', function() {
+        // 关闭当前可能显示的悬浮预览
+        hideHoverPreview();
         // 显示压缩配置模态框
         $('#compress-modal').modal('show');
     });
     
     // 图片转换按钮
     $('#convert-btn').on('click', function() {
+        // 关闭当前可能显示的悬浮预览
+        hideHoverPreview();
         // 显示转换配置模态框
         $('#convert-modal').modal('show');
     });
@@ -1274,6 +1286,7 @@ $(document).ready(function() {
         $('#processed-files').text('0');
         $('#current-file-path').text('');
         $('#progress-bar').css('width', '0%').attr('aria-valuenow', '0');
+        $('#progress-percentage').text('0%');
         
         // 重置进度标题
         $('#progress-title').text('处理进度');
