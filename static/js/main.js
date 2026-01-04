@@ -100,13 +100,7 @@ function showToast(message, title = '提示', duration = 2000) {
 
 // 自定义alert函数
 function customAlert(message, title = '提示', type = 'info') {
-    // 如果是提示类型，使用Toast模态框
-    if (type === 'info') {
-        showToast(message, title);
-        return;
-    }
     
-    // 错误类型使用传统模态框
     $('#alert-modal-title').text(title);
     $('#alert-modal-message').text(message);
     
@@ -419,7 +413,7 @@ $(document).ready(function() {
         
         // 如果没有选中任何项目，可能是因为所有项目都是文件夹
         if (selectedCount === 0) {
-                customAlert('当前目录下没有可选中的文件');
+                showToast('当前目录下没有可选中的文件');
             }
     });
     
@@ -456,7 +450,7 @@ $(document).ready(function() {
     $('#start-search-btn').on('click', function() {
         const pattern = $('#search-pattern').val();
         if (!pattern) {
-            customAlert('请输入搜索模式');
+            showToast('请输入搜索模式');
             return;
         }
         
@@ -561,7 +555,7 @@ $(document).ready(function() {
                                 data: JSON.stringify({ path: path }),
                                 success: function(response) {
                                     $('#loading').hide();
-                                    customAlert(`成功删除文件 "${filename}"`);
+                                    showToast(`成功删除文件 "${filename}"`);
                                     // 刷新文件列表
                                     loadFiles();
                                     // 隐藏被删除的文件行
@@ -734,7 +728,7 @@ $(document).ready(function() {
                                 }),
                                 success: function(response) {
                                     $('#loading').hide();
-                                    customAlert(`成功删除${response.deleted_count}个${format}格式的文件`);
+                                    showToast(`成功删除${response.deleted_count}个${format}格式的文件`);
                                     // 刷新文件列表
                                     loadFiles();
                                     // 隐藏被删除的文件类型行，不关闭模态框
@@ -800,7 +794,7 @@ $(document).ready(function() {
         // 关闭当前可能显示的悬浮预览
         hideHoverPreview();
         if (selectedFiles.length === 0) {
-            customAlert('请先选择文件或文件夹');
+            showToast('请先选择文件或文件夹');
             return;
         }
         
@@ -948,7 +942,7 @@ $(document).ready(function() {
         // 关闭当前可能显示的悬浮预览
         hideHoverPreview();
         if (selectedFiles.length === 0) {
-            customAlert('请先选择文件或文件夹');
+            showToast('请先选择文件或文件夹');
             return;
         }
         
@@ -1048,7 +1042,7 @@ $(document).ready(function() {
     // 开始压缩按钮
     $('#start-compress-btn').on('click', function() {
         if (selectedFiles.length === 0) {
-            customAlert('请先选择文件或文件夹');
+            showToast('请先选择文件或文件夹');
             return;
         }
         
@@ -1146,7 +1140,7 @@ $(document).ready(function() {
     // 开始转换按钮
     $('#start-convert-btn').on('click', function() {
         if (selectedFiles.length === 0) {
-            customAlert('请先选择文件或文件夹');
+            showToast('请先选择文件或文件夹');
             return;
         }
         
@@ -1917,7 +1911,7 @@ function previewImage(path) {
                                 // 隐藏查询按钮
                                 button.hide();
                             } else {
-                                customAlert('无法查询到地址');
+                                customAlert('无法查询到地址','错误','error');
                             }
                         },
                         error: function(xhr, status, error) {
