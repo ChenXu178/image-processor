@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, jsonify, session, send_file
 import os
 import threading
-import time
 from datetime import datetime
 from PIL import Image
 import concurrent.futures
@@ -12,6 +11,10 @@ import platform
 import io
 import traceback
 from pdf2image import convert_from_path
+from natsort import natsorted, ns
+from pypinyin import lazy_pinyin
+import locale
+locale.setlocale(locale.LC_ALL, 'zh_CN.UTF-8')
 
 # 配置日志记录
 from logging.handlers import RotatingFileHandler
@@ -660,14 +663,15 @@ def get_files():
                 logger.error(f"自动进入子文件夹失败: {e}")
                 break
     
-    files = []
     try:
+        dirs = []
+        imgs = []
         # 遍历目录，获取所有文件和文件夹
         for item in os.listdir(path):
             item_path = os.path.join(path, item)
             if os.path.isdir(item_path):
                 # 目录项
-                files.append({
+                dirs.append({
                     'name': item,
                     'path': item_path,
                     'type': 'dir',
@@ -676,19 +680,42 @@ def get_files():
                 })
             elif is_image_file(item):
                 # 图片文件项
-                files.append({
+                imgs.append({
                     'name': item,
                     'path': item_path,
                     'type': 'file',
                     'size': get_file_size(item_path),
                     'mtime': os.path.getmtime(item_path)
                 })
-        # 按类型排序，文件夹在前，文件在后
-        files.sort(key=lambda x: (x['type'] != 'dir', x['name']))
-        logger.info(f"成功获取 {len(files)} 个文件/文件夹，当前路径: {path}")
+        # 按类型排序，文件夹在前，文件在后，使用natsorted+lazy_pinyin实现中文排序，支持Windows资源管理器排序规则
+        # 英文文件名在前，中文文件名在后
+        def get_sort_key(item):
+            name = item['name']
+            # 检查文件名首字符是否为中文
+            is_chinese = len(name) > 0 and '\u4e00' <= name[0] <= '\u9fff'
+            # 生成排序键：(是否为中文, 拼音或原名称, 原名称)
+            return (
+                is_chinese,  # 英文在前，中文在后
+                ''.join(lazy_pinyin(name)),  # 中文按拼音排序
+                name.lower()  # 保持自然排序的准确性
+            )
+        
+        sorted_dirs = natsorted(
+            dirs,
+            key=get_sort_key,
+            alg=ns.PATH | ns.IGNORECASE,
+            reverse=False
+        )
+        sorted_imgs = natsorted(
+            imgs,
+            key=get_sort_key,
+            alg=ns.PATH | ns.IGNORECASE,
+            reverse=False
+        )
+        logger.info(f"成功获取 {len(sorted_dirs)} 个文件夹和 {len(sorted_imgs)} 个图片文件，当前路径: {path}")
         
         return jsonify({
-            'files': files,
+            'files': sorted_dirs + sorted_imgs,
             'current_path': path
         })
     except Exception as e:

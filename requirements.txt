@@ -2,3 +2,5 @@ Flask>=2.3.0
 Pillow
 pdf2image
 geopy
+natsort
+pypinyin
