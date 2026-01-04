@@ -508,18 +508,18 @@ $(document).ready(function() {
                         const fileExt = file.ext.toLowerCase() === 'jpeg' ? 'jpg' : file.ext.toLowerCase();
                         const isImage = supportedFormats.includes(fileExt);
                         
-                        resultHtml += '<div class="list-group-item list-group-item-action search-result-item" data-path="' + file.path + '" data-is-image="' + isImage + '" style="cursor: pointer;">';
+                        resultHtml += '<div class="list-group-item list-group-item-action search-result-item">';
                         resultHtml += '<div class="d-flex justify-content-between align-items-center">';
 
-                        resultHtml += '<div class="search-result-item-name" style="flex: 1; min-width: 0;">';
+                        resultHtml += '<div class="search-result-item-name">';
                         resultHtml += '<strong>' + file.name + '</strong>';
                         resultHtml += '<br>';
-                        resultHtml += '<small class="text-muted" style="word-break: break-all; word-wrap: break-word; max-width: 95%; display: inline-block;">' + file.path + '</small>';
+                        resultHtml += '<small class="text-muted search-result-path">' + file.path + '</small>';
 
                         resultHtml += '<br>';
                         resultHtml += '<small class="text-muted">大小: ' + formatFileSize(file.size) + ' | 类型: ' + file.ext + '</small>';
                         resultHtml += '</div>';
-                        resultHtml += '<div class="btn-group" style="flex-shrink: 0;">';
+                        resultHtml += '<div class="btn-group search-result-actions">';
 
                         resultHtml += '<button class="btn btn-danger btn-sm delete-btn" data-path="' + file.path + '" title="删除">删除</button>';
                         resultHtml += '<button class="btn btn-primary btn-sm jump-btn" data-path="' + file.path + '" title="跳转">跳转</button>';

@@ -669,3 +669,71 @@ body {
     border-top: 1px solid #e9ecef;
     width: 100%;
 }
+
+/* 进度操作区域样式 */
+.progress-actions {
+    margin-top: 20px;
+}
+
+/* 按钮右侧间距 */
+.btn-margin-right {
+    margin-right: 10px;
+}
+
+/* 悬浮预览容器样式 */
+#hover-preview {
+    position: fixed;
+    z-index: 10000;
+    background-color: rgba(255, 255, 255, 0.95);
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 10px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    width: 300px;
+    height: 300px;
+}
+
+/* 悬浮预览图片样式 */
+#hover-preview-image {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+/* 修复文件列表样式 */
+.fix-files-list {
+    max-height: 200px;
+    background-color: #f8f9fa;
+    padding-left: 10px;
+    padding-right: 10px;
+    border-radius: 4px;
+}
+
+/* 提示模态框样式 */
+#toast-modal {
+    z-index: 12000;
+}
+
+/* 搜索结果项样式 */
+.search-result-item {
+    cursor: pointer;
+}
+
+/* 搜索结果项名称样式 */
+.search-result-item-name {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 搜索结果路径样式 */
+.search-result-path {
+    word-break: break-all;
+    word-wrap: break-word;
+    max-width: 95%;
+    display: inline-block;
+}
+
+/* 搜索结果按钮组样式 */
+.search-result-actions {
+    flex-shrink: 0;
+}
