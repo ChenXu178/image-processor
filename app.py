@@ -1344,9 +1344,9 @@ def count_formats():
                 
             # 获取文件扩展名（区分大小写）
             ext = os.path.splitext(filename)[1][1:]  # [1:] 移除点号，保持原始大小写
-            # 如果文件没有扩展名，使用'no_extension'
+            # 如果文件没有扩展名，使用'无扩展名'
             if not ext:
-                ext = 'no_extension'
+                ext = '无扩展名'
             
             # 获取文件大小
             file_size = get_file_size(filepath)
@@ -1442,6 +1442,7 @@ def fix_extensions():
     
     def process_directory(directory_path):
         """迭代处理目录中的文件"""
+        nonlocal processed, skipped_files, failed_files
         stack = [directory_path]
         while stack:
             current_dir = stack.pop()
@@ -1734,9 +1735,9 @@ def delete_files_by_format():
                                         
                                         # 获取文件扩展名（区分大小写）
                                         file_ext = os.path.splitext(entry.name)[1][1:]  # [1:] 移除点号，保持原始大小写
-                                        # 如果文件没有扩展名，使用'no_extension'
+                                        # 如果文件没有扩展名，使用'无扩展名'
                                         if not file_ext:
-                                            file_ext = 'no_extension'
+                                            file_ext = '无扩展名'
                                         
                                         # 检查文件格式是否匹配
                                         if file_ext == format:
@@ -1755,9 +1756,9 @@ def delete_files_by_format():
                 filename = os.path.basename(path)
                 # 获取文件扩展名（区分大小写）
                 file_ext = os.path.splitext(filename)[1][1:]  # [1:] 移除点号，保持原始大小写
-                # 如果文件没有扩展名，使用'no_extension'
+                # 如果文件没有扩展名，使用'无扩展名'
                 if not file_ext:
-                    file_ext = 'no_extension'
+                    file_ext = '无扩展名'
                 
                 # 检查文件格式是否匹配
                 if file_ext == format:
