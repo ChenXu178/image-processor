@@ -1104,13 +1104,16 @@ def preview_file(filepath):
     """
     logger.info(f"预览文件，相对路径: {filepath}")
     
-    # 构建完整路径
-    # 情况1: 如果filepath是绝对路径（包含:），直接使用
+    # 构建完整路径，确保所有文件都在BASE_DIR范围内
     if ':' in filepath:
+        # 即使是绝对路径，也要确保在BASE_DIR范围内
         full_path = filepath
-    # 情况2: 否则，结合BASE_DIR构建绝对路径
+        # 检查路径是否在BASE_DIR范围内
+        if not os.path.normpath(full_path).startswith(os.path.normpath(BASE_DIR)):
+            logger.warning(f"绝对路径 {full_path} 不在BASE_DIR {BASE_DIR} 范围内")
+            return '文件未找到', 404
     else:
-        # 使用os.path.join自动处理不同平台的路径分隔符
+        # 结合BASE_DIR构建绝对路径
         full_path = os.path.normpath(os.path.join(BASE_DIR, filepath.replace('/', os.sep)))
     
     logger.info(f"生成完整路径: {full_path}")
@@ -1575,6 +1578,11 @@ def delete_file():
         logger.warning(f"指定路径不是文件: {file_path}")
         return jsonify({'error': '指定路径不是文件'}), 400
     
+    # 检查文件路径是否在BASE_DIR范围内，防止任意文件删除
+    if not os.path.normpath(file_path).startswith(os.path.normpath(BASE_DIR)):
+        logger.warning(f"文件路径 {file_path} 不在BASE_DIR {BASE_DIR} 范围内")
+        return jsonify({'error': '无效的文件路径'}), 400
+    
     try:
         os.remove(file_path)
         logger.info(f"已成功删除文件: {file_path}")
@@ -1607,12 +1615,22 @@ def delete_files_by_format():
     
     try:
         for path in selected_paths:
+            # 检查路径是否在BASE_DIR范围内
+            if not os.path.normpath(path).startswith(os.path.normpath(BASE_DIR)):
+                logger.warning(f"路径 {path} 不在BASE_DIR {BASE_DIR} 范围内，跳过处理")
+                continue
+                
             if os.path.isdir(path):
                 logger.info(f"删除目录中的文件: {path}")
                 # 遍历目录，删除所有指定格式的文件
                 for root, dirs, files in os.walk(path):
                     for file in files:
                         filepath = os.path.join(root, file)
+                        # 再次检查文件路径是否在BASE_DIR范围内
+                        if not os.path.normpath(filepath).startswith(os.path.normpath(BASE_DIR)):
+                            logger.warning(f"文件路径 {filepath} 不在BASE_DIR {BASE_DIR} 范围内，跳过删除")
+                            continue
+                            
                         # 跳过隐藏文件
                         if file.startswith('.'):
                             continue
@@ -2226,9 +2244,20 @@ def download_file():
     file_path = request.args.get('path')
     logger.info(f"下载文件: {file_path}")
     
+    # 验证文件路径
     if not file_path or not os.path.isfile(file_path):
         logger.warning(f"无效的文件路径: {file_path}")
         return '无效的文件路径', 400
+    
+    # 检查文件路径是否在BASE_DIR范围内，防止任意文件下载
+    if not os.path.normpath(file_path).startswith(os.path.normpath(BASE_DIR)):
+        logger.warning(f"文件路径 {file_path} 不在BASE_DIR {BASE_DIR} 范围内")
+        return '无效的文件路径', 400
+    
+    # 检查文件类型，只允许下载支持的图片和PDF文件
+    if not is_image_file(file_path):
+        logger.warning(f"不支持的文件类型，无法下载: {file_path}")
+        return '不支持的文件类型', 400
     
     try:
         logger.info(f"返回文件: {file_path}")
