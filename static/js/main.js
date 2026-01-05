@@ -508,7 +508,7 @@ $(document).ready(function() {
                         const fileExt = file.ext.toLowerCase() === 'jpeg' ? 'jpg' : file.ext.toLowerCase();
                         const isImage = supportedFormats.includes(fileExt);
                         
-                        resultHtml += '<div class="list-group-item list-group-item-action search-result-item">';
+                        resultHtml += '<div class="list-group-item list-group-item-action search-result-item" data-path="' + file.path + '" data-is-image="' + isImage + '">';
                         resultHtml += '<div class="d-flex justify-content-between align-items-center">';
 
                         resultHtml += '<div class="search-result-item-name">';
@@ -746,7 +746,7 @@ $(document).ready(function() {
                                 }),
                                 success: function(response) {
                                     $('#loading').hide();
-                                    showToast(`成功删除${response.deleted_count}个${format}格式的文件`);
+                                    customAlert(`成功删除${response.deleted_count}个${format}格式的文件`);
                                     // 刷新文件列表
                                     loadFiles();
                                     // 隐藏被删除的文件类型行，不关闭模态框

@@ -95,6 +95,6 @@ echo "DEBUG mode: $DEBUG"
 if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "true" ]; then
     exec gosu $PUID:$ACTUAL_GID bash -c "umask $UMASK && python3 app.py"
 else
-    # 生产环境使用gunicorn，启动4个工作进程
-    exec gosu $PUID:$ACTUAL_GID bash -c "umask $UMASK && gunicorn -w 1 -b 0.0.0.0:5000 --preload app:app"
+    # 生产环境使用gunicorn，启动4个工作进程，增加超时时间到120秒
+    exec gosu $PUID:$ACTUAL_GID bash -c "umask $UMASK && gunicorn -w 1 -b 0.0.0.0:5000 --preload --timeout 600 app:app"
 fi
