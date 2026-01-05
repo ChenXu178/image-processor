@@ -14,7 +14,6 @@ from pdf2image import convert_from_path
 from natsort import natsorted, ns
 from pypinyin import lazy_pinyin
 import locale
-locale.setlocale(locale.LC_ALL, 'zh_CN.UTF-8')
 
 # 配置日志记录
 from logging.handlers import RotatingFileHandler
@@ -51,6 +50,12 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+# 设置中文语言环境，失败时使用默认环境
+try:
+    locale.setlocale(locale.LC_ALL, 'zh_CN.UTF-8')
+except locale.Error:
+    logger.warning("无法设置中文语言环境，使用默认环境")
+
 # 获取应用版本号
 def get_app_version():
     """
@@ -67,6 +72,7 @@ def get_app_version():
         )
         git_version = result.stdout.strip()
         if git_version:
+            logger.info(f"从git获取版本号: {git_version}")
             return git_version
     except (subprocess.CalledProcessError, FileNotFoundError):
         # git命令执行失败，从环境变量获取
@@ -74,10 +80,12 @@ def get_app_version():
     
     # 尝试从环境变量获取版本号
     env_version = os.environ.get('APP_VERSION')
+    logger.info(f"从环境变量获取版本号: {env_version}")
     if env_version:
         return env_version
     
     # 最后使用默认值
+    logger.info("获取版本号失败，使用默认值: 未知")
     return '未知'
 
 # 初始化应用版本号

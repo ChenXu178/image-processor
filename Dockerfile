@@ -22,7 +22,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jpegoptim \
     pngquant \
     webp \
+    locales \
     && rm -rf /var/lib/apt/lists/*
+    
+# 配置中文语言环境
+RUN echo "zh_CN.UTF-8 UTF-8" >> /etc/locale.gen \
+    && locale-gen zh_CN.UTF-8
 
 RUN sed -i 's/<policy domain="coder" rights="none" pattern="PDF" \/>/<policy domain="coder" rights="read|write" pattern="PDF" \/>/' /etc/ImageMagick-6/policy.xml && \
     sed -i 's/<policy domain="coder" rights="none" pattern="PS" \/>/<policy domain="coder" rights="read|write" pattern="PS" \/>/' /etc/ImageMagick-6/policy.xml && \
