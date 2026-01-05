@@ -107,11 +107,13 @@ try:
     with open('config.py', 'r', encoding='utf-8') as f:
         config = {}
         exec(f.read(), config)
-        BASE_DIR = config['BASE_DIR']
-    logger.info(f"配置加载成功，BASE_DIR: {BASE_DIR}")
+        BASE_DIR = config.get('BASE_DIR', '/data')  # 加载BASE_DIR配置，默认值为'/data'
+        DEBUG = config.get('DEBUG', False)  # 加载DEBUG配置，默认值为False
+    logger.info(f"配置加载成功，BASE_DIR: {BASE_DIR}, DEBUG: {DEBUG}")
 except Exception as e:
     logger.error(f"配置加载失败: {e}")
     BASE_DIR = '/data'  # 默认值
+    DEBUG = False  # 默认不启用调试模式
 
 # 支持的图片格式
 SUPPORTED_FORMATS = {
@@ -2317,4 +2319,4 @@ def get_version():
     return jsonify({'version': APP_VERSION})
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=DEBUG, host='0.0.0.0', port=5000)
