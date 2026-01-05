@@ -90,7 +90,19 @@
 
 ### Docker部署
 
-#### 方法1：本地构建并运行
+#### 方法1：从Dockerhub拉取镜像（推荐）
+
+1. **拉取Docker镜像**
+   ```bash
+   docker pull liziwa/image-processor:latest
+   ```
+
+2. **运行Docker容器**
+   ```bash
+   docker run -d -p 5000:5000 -v /path/to/your/images:/data -e PUID=$(id -u) -e PGID=$(id -g) liziwa/image-processor:latest
+   ```
+
+#### 方法2：本地构建并运行
 
 1. **构建Docker镜像**
    ```bash
