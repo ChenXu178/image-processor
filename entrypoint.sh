@@ -78,4 +78,23 @@ chown -R $PUID:$ACTUAL_GID /app
 
 # 使用正确的用户和组运行应用程序
 echo "Running application as $APP_USER ($PUID:$ACTUAL_GID), UMASK: $UMASK"
-exec gosu $PUID:$ACTUAL_GID bash -c "umask $UMASK && python3 app.py"
+
+# 从config.py中读取DEBUG配置
+DEBUG=$(python3 -c "
+import sys
+import os
+sys.path.append('/app')
+config = {}
+with open('/app/config.py', 'r', encoding='utf-8') as f:
+    exec(f.read(), config)
+print(config.get('DEBUG', False))")
+
+echo "DEBUG mode: $DEBUG"
+
+# 生产环境使用gunicorn启动，开发环境使用python直接启动
+if [ "$DEBUG" = "True" ] || [ "$DEBUG" = "true" ]; then
+    exec gosu $PUID:$ACTUAL_GID bash -c "umask $UMASK && python3 app.py"
+else
+    # 生产环境使用gunicorn，启动4个工作进程
+    exec gosu $PUID:$ACTUAL_GID bash -c "umask $UMASK && gunicorn -w 1 -b 0.0.0.0:5000 --preload app:app"
+fi

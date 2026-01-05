@@ -4,3 +4,4 @@ pdf2image
 geopy
 natsort
 pypinyin
+gunicorn>=20.0.0

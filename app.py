@@ -94,7 +94,7 @@ APP_VERSION = get_app_version()
 # 导入geopy库用于地址查询
 from geopy.geocoders import Nominatim
 
-# 初始化geocoder，使用zh-CN语言
+# 初始化geocoder
 gelocator = Nominatim(user_agent="image-processor", timeout=5)
 logger.info("成功加载并初始化geopy库")
 
@@ -2307,6 +2307,8 @@ def get_config():
     # 获取CPU核心数
     cpu_count = os.cpu_count() or 4  # 默认为4
     logger.info(f"获取CPU核心数: {cpu_count}")
+    if cpu_count > 1:
+        cpu_count -= 1  # 减去1个核心，保留1个核心用于gunicorn服务
     return jsonify({'base_dir': BASE_DIR, 'cpu_count': cpu_count})
 
 @app.route('/get_version')
