@@ -10,10 +10,13 @@ import subprocess
 import platform
 import io
 import traceback
+import uuid
+import queue
 from pdf2image import convert_from_path
 from natsort import natsorted, ns
 from pypinyin import lazy_pinyin
 import locale
+
 
 # 配置日志记录
 from logging.handlers import RotatingFileHandler
@@ -223,10 +226,44 @@ progress_data = {
     'final_size': 0,
     'current_file': '',  # 当前正在处理的图片路径
     'failed_files': [],  # 转换/压缩失败的文件列表
-    'skipped_files': []  # 已存在而跳过的文件列表
+    'skipped_files': [],  # 已存在而跳过的文件列表
+    'task_type': '',  # 处理类型：compress（压缩）、convert（转换）
+    'target_format': ''  # 目标格式（仅转换时使用）
 }
 
 progress_lock = threading.Lock()
+
+# 任务状态存储
+tasks = {}
+tasks_lock = threading.Lock()
+
+def update_task_progress(task_id, **kwargs):
+    """
+    更新任务进度
+    """
+    with tasks_lock:
+        if task_id in tasks:
+            for key, value in kwargs.items():
+                tasks[task_id][key] = value
+
+def cleanup_completed_tasks(max_age_minutes=60):
+    """
+    清理已完成的任务（超过指定时间）
+    """
+    import time
+    now = time.time()
+    with tasks_lock:
+        keys_to_remove = []
+        for task_id, task in tasks.items():
+            if task['status'] in ['completed', 'failed']:
+                try:
+                    end_time = datetime.fromisoformat(task['end_time'])
+                    if (now - end_time.timestamp()) > max_age_minutes * 60:
+                        keys_to_remove.append(task_id)
+                except:
+                    pass
+        for key in keys_to_remove:
+            del tasks[key]
 
 # 停止处理标记
 stop_processing_flag = False
@@ -667,9 +704,12 @@ def get_files():
                 file_count = 0
                 single_dir_path = None
                 
-                # 使用os.scandir统计目录和文件数量
+                # 使用os.scandir统计目录和文件数量，跳过隐藏文件夹
                 with os.scandir(path) as entries:
                     for entry in entries:
+                        # 跳过隐藏文件夹
+                        if entry.name.startswith('.'):
+                            continue
                         if entry.is_dir(follow_symlinks=False):
                             dir_count += 1
                             single_dir_path = entry.path
@@ -1318,7 +1358,7 @@ def count_formats():
     统计文件格式
     请求方法: POST
     请求参数: selected_paths - 要统计的文件或文件夹路径列表
-    返回: JSON格式的统计结果，包括各格式的文件数量、大小、总文件数和总大小
+    返回: JSON格式的结果，包括任务ID和任务类型，前端根据taskId轮询任务状态
     """
     selected_paths = request.json.get('selected_paths', [])
     logger.info(f"开始统计文件格式，选中路径: {selected_paths}")
@@ -1327,98 +1367,114 @@ def count_formats():
         logger.warning("未选中任何文件或文件夹")
         return jsonify({'error': '未选中任何文件或文件夹'}), 400
     
-    format_count = {}  # 格式 -> 数量
-    format_size = {}   # 格式 -> 总大小
-    total_files = 0    # 总文件数
-    total_size = 0     # 总大小
+    task_id = str(uuid.uuid4())
     
-    def process_file(filepath, filename):
-        """处理单个文件，更新统计信息"""
-        nonlocal format_count, format_size, total_files, total_size
+    with tasks_lock:
+        tasks[task_id] = {
+            'id': task_id,
+            'type': 'count_formats',
+            'status': 'running',
+            'progress': 0,
+            'total': 0,
+            'current': '',
+            'result': None,
+            'error': None,
+            'start_time': datetime.now().isoformat(),
+            'end_time': None,
+            'params': {
+                'selected_paths': selected_paths
+            }
+        }
+    
+    def run_count_task():
+        format_count = {}
+        format_size = {}
+        total_files = 0
+        total_size = 0
+        def process_file(filepath, filename):
+            nonlocal format_count, format_size, total_files, total_size
+            try:
+                if not os.path.normpath(filepath).startswith(os.path.normpath(BASE_DIR)):
+                    return
+                    
+                ext = os.path.splitext(filename)[1][1:]
+                if not ext:
+                    ext = '无扩展名'
+                
+                file_size = get_file_size(filepath)
+                format_count[ext] = format_count.get(ext, 0) + 1
+                format_size[ext] = format_size.get(ext, 0) + file_size
+                total_files += 1
+                total_size += file_size
+                
+                with tasks_lock:
+                    if task_id in tasks:
+                        tasks[task_id]['progress'] = total_files
+                        tasks[task_id]['current'] = filepath
+            except Exception as e:
+                logger.error(f"处理文件 {filepath} 失败: {e}", exc_info=True)
+        
+        def scan_directory(dir_path):
+            stack = [dir_path]
+            while stack:
+                current_dir = stack.pop()
+                try:
+                    with os.scandir(current_dir) as entries:
+                        for entry in entries:
+                            try:
+                                if entry.name.startswith('.'):
+                                    continue
+                                    
+                                entry_path = entry.path
+                                
+                                if not os.path.normpath(entry_path).startswith(os.path.normpath(BASE_DIR)):
+                                    continue
+                                    
+                                if entry.is_dir(follow_symlinks=False):
+                                    stack.append(entry_path)
+                                elif entry.is_file(follow_symlinks=False):
+                                    process_file(entry_path, entry.name)
+                            except Exception as e:
+                                logger.error(f"处理条目 {entry.path} 失败: {e}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"扫描目录 {current_dir} 失败: {e}", exc_info=True)
         
         try:
-            # 检查文件路径是否在BASE_DIR范围内，防止目录遍历攻击
-            if not os.path.normpath(filepath).startswith(os.path.normpath(BASE_DIR)):
-                logger.warning(f"文件路径 {filepath} 不在BASE_DIR {BASE_DIR} 范围内")
-                return
-                
-            # 获取文件扩展名（区分大小写）
-            ext = os.path.splitext(filename)[1][1:]  # [1:] 移除点号，保持原始大小写
-            # 如果文件没有扩展名，使用'无扩展名'
-            if not ext:
-                ext = '无扩展名'
+            for path in selected_paths:
+                if not os.path.normpath(path).startswith(os.path.normpath(BASE_DIR)):
+                    continue
+                    
+                if os.path.isdir(path):
+                    scan_directory(path)
+                elif os.path.isfile(path):
+                    process_file(path, os.path.basename(path))
             
-            # 获取文件大小
-            file_size = get_file_size(filepath)
-            # 更新统计信息
-            format_count[ext] = format_count.get(ext, 0) + 1
-            format_size[ext] = format_size.get(ext, 0) + file_size
-            total_files += 1
-            total_size += file_size
+            logger.info(f"统计完成，总文件数: {total_files}, 总大小: {total_size} bytes")
+            logger.info(f"格式统计: {format_count}")
+            
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'completed'
+                    tasks[task_id]['result'] = {
+                        'format_count': format_count,
+                        'format_size': format_size,
+                        'total_files': total_files,
+                        'total_size': total_size
+                    }
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
         except Exception as e:
-            logger.error(f"处理文件 {filepath} 失败: {e}", exc_info=True)
+            logger.error(f"统计文件格式失败: {e}")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'failed'
+                    tasks[task_id]['error'] = str(e)
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
     
-    # 使用迭代方式扫描目录，避免递归导致的栈溢出
-    def scan_directory(dir_path):
-        """使用os.scandir迭代扫描目录，处理所有文件"""
-        stack = [dir_path]
-        while stack:
-            current_dir = stack.pop()
-            try:
-                with os.scandir(current_dir) as entries:
-                    for entry in entries:
-                        try:
-                            # 跳过隐藏文件和目录
-                            if entry.name.startswith('.'):
-                                continue
-                                
-                            # 构建完整路径
-                            entry_path = entry.path
-                            
-                            # 检查路径是否在BASE_DIR范围内，防止目录遍历攻击
-                            if not os.path.normpath(entry_path).startswith(os.path.normpath(BASE_DIR)):
-                                logger.warning(f"路径 {entry_path} 不在BASE_DIR {BASE_DIR} 范围内，跳过统计")
-                                continue
-                                
-                            if entry.is_dir(follow_symlinks=False):
-                                # 将子目录添加到栈中
-                                stack.append(entry_path)
-                            elif entry.is_file(follow_symlinks=False):
-                                # 处理文件
-                                process_file(entry_path, entry.name)
-                        except Exception as e:
-                            logger.error(f"处理条目 {entry.path} 失败: {e}", exc_info=True)
-            except Exception as e:
-                logger.error(f"扫描目录 {current_dir} 失败: {e}", exc_info=True)
+    thread = threading.Thread(target=run_count_task)
+    thread.daemon = True
+    thread.start()
     
-    try:
-        for path in selected_paths:
-            # 检查路径是否在BASE_DIR范围内，防止目录遍历攻击
-            if not os.path.normpath(path).startswith(os.path.normpath(BASE_DIR)):
-                logger.warning(f"路径 {path} 不在BASE_DIR {BASE_DIR} 范围内，跳过统计")
-                continue
-                
-            if os.path.isdir(path):
-                logger.info(f"统计目录: {path}")
-                # 使用更高效的os.scandir迭代扫描目录
-                scan_directory(path)
-            elif os.path.isfile(path):
-                logger.info(f"统计文件: {path}")
-                # 处理单个文件
-                process_file(path, os.path.basename(path))
-        
-        logger.info(f"统计完成，总文件数: {total_files}, 总大小: {total_size} bytes")
-        logger.info(f"格式统计: {format_count}")
-        
-        return jsonify({
-            'format_count': format_count,
-            'format_size': format_size,
-            'total_files': total_files,
-            'total_size': total_size
-        })
-    except Exception as e:
-        logger.error(f"统计文件格式失败: {e}", exc_info=True)
-        return jsonify({'error': f'统计文件格式失败: {e}'}), 500
+    return jsonify({'task_id': task_id, 'task_type': 'count_formats'})
 
 @app.route('/fix_extensions', methods=['POST'])
 def fix_extensions():
@@ -1426,8 +1482,7 @@ def fix_extensions():
     修复文件后缀，将大写扩展名改为小写，并将jpeg改为jpg
     请求方法: POST
     请求参数: selected_paths - 要修复的文件或文件夹路径列表
-    返回: JSON格式的修复结果，包括处理的文件数量
-    说明: 支持所有文件类型，跳过隐藏文件
+    返回: JSON格式的结果，包括任务ID和任务类型，前端根据taskId轮询任务状态
     """
     selected_paths = request.json.get('selected_paths', [])
     logger.info(f"开始修复文件后缀，选中路径: {selected_paths}")
@@ -1436,110 +1491,132 @@ def fix_extensions():
         logger.warning("未选中任何文件或文件夹")
         return jsonify({'error': '未选中任何文件或文件夹'}), 400
     
-    processed = 0  # 处理的文件数量
-    skipped_files = []  # 跳过的文件列表
-    failed_files = []  # 失败的文件列表
+    task_id = str(uuid.uuid4())
     
-    def process_directory(directory_path):
-        """迭代处理目录中的文件"""
-        nonlocal processed, skipped_files, failed_files
-        stack = [directory_path]
-        while stack:
-            current_dir = stack.pop()
-            try:
-                with os.scandir(current_dir) as entries:
-                    for entry in entries:
-                        # 跳过隐藏文件和目录
-                        if entry.name.startswith('.'):
-                            continue
-                        if entry.is_dir(follow_symlinks=False):
-                            # 将子目录添加到栈中
-                            stack.append(entry.path)
-                        elif entry.is_file(follow_symlinks=False):
-                            
-                            try:
-                                # 获取文件扩展名，确保使用正确的分割方法
-                                name_without_ext, ext = os.path.splitext(entry.name)
-                                # 标准化扩展名
-                                ext_lower = ext.lower()
-                                # 检查是否需要修复：1) 包含大写 2) 是jpeg
-                                needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
-                                
-                                if needs_fix:
-                                    old_path = entry.path
-                                    # 生成新扩展名：如果是jpeg则改为jpg，否则保留原扩展名的小写
-                                    new_ext = '.jpg' if ext_lower == '.jpeg' else ext_lower
-                                    # 生成新文件名
-                                    new_name = f"{name_without_ext}{new_ext}"
-                                    new_path = os.path.join(os.path.dirname(old_path), new_name)
-                                    # 检查新文件名是否已存在
-                                    if os.path.exists(new_path):
-                                        logger.info(f"文件已存在，跳过: {new_path}")
-                                        skipped_files.append(old_path)
-                                        continue
-                                    # 重命名文件
-                                    os.rename(old_path, new_path)
-                                    logger.info(f"重命名文件: {old_path} -> {new_path}")
-                                    processed += 1
-                            except Exception as e:
-                                # 记录失败的文件
-                                failed_file = entry.path
-                                failed_files.append({'path': failed_file, 'error': str(e)})
-                                logger.error(f"处理文件失败: {failed_file}, 错误: {e}")
-            except Exception as e:
-                logger.error(f"扫描目录 {current_dir} 失败: {e}")
+    with tasks_lock:
+        tasks[task_id] = {
+            'id': task_id,
+            'type': 'fix_extensions',
+            'status': 'running',
+            'progress': 0,
+            'total': 0,
+            'current': '',
+            'result': None,
+            'error': None,
+            'start_time': datetime.now().isoformat(),
+            'end_time': None,
+            'params': {
+                'selected_paths': selected_paths
+            }
+        }
     
-    try:
-        for path in selected_paths:
-            if os.path.isdir(path):
-                logger.info(f"修复目录: {path}")
-                # 使用os.scandir迭代遍历目录
-                process_directory(path)
-            elif os.path.isfile(path):
+    def run_fix_task():
+        processed = 0
+        skipped_files = []
+        failed_files = []
+        def process_directory(directory_path):
+            nonlocal processed, skipped_files, failed_files
+            stack = [directory_path]
+            while stack:
+                current_dir = stack.pop()
                 try:
-                    logger.info(f"修复文件: {path}")
-                    # 获取文件扩展名
-                    filename = os.path.basename(path)
-                    # 跳过隐藏文件
-                    if filename.startswith('.'):
-                        continue
-                    # 获取文件扩展名
-                    name_without_ext, ext = os.path.splitext(filename)
-                    # 标准化扩展名
-                    ext_lower = ext.lower()
-                    # 检查是否需要修复：1) 包含大写 2) 是jpeg
-                    needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
-                    
-                    if needs_fix:
-                        # 生成新扩展名：如果是jpeg则改为jpg，否则保留原扩展名的小写
-                        new_ext = '.jpg' if ext_lower == '.jpeg' else ext_lower
-                        # 生成新文件名
-                        new_name = f"{name_without_ext}{new_ext}"
-                        dirname = os.path.dirname(path)
-                        new_path = os.path.join(dirname, new_name)
-                        # 检查新文件名是否已存在
-                        if os.path.exists(new_path):
-                            logger.info(f"文件已存在，跳过: {new_path}")
-                            skipped_files.append(path)
-                            continue
-                        # 重命名文件
-                        os.rename(path, new_path)
-                        logger.info(f"重命名文件: {path} -> {new_path}")
-                        processed += 1
+                    with os.scandir(current_dir) as entries:
+                        for entry in entries:
+                            if entry.name.startswith('.'):
+                                continue
+                            if entry.is_dir(follow_symlinks=False):
+                                stack.append(entry.path)
+                            elif entry.is_file(follow_symlinks=False):
+                                try:
+                                    name_without_ext, ext = os.path.splitext(entry.name)
+                                    ext_lower = ext.lower()
+                                    needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
+                                    
+                                    if needs_fix:
+                                        old_path = entry.path
+                                        new_ext = '.jpg' if ext_lower == '.jpeg' else ext_lower
+                                        new_name = f"{name_without_ext}{new_ext}"
+                                        new_path = os.path.join(os.path.dirname(old_path), new_name)
+                                        
+                                        if os.path.exists(new_path):
+                                            skipped_files.append(old_path)
+                                            with tasks_lock:
+                                                if task_id in tasks:
+                                                    tasks[task_id]['progress'] = processed + len(skipped_files)
+                                                    tasks[task_id]['current'] = old_path
+                                            continue
+                                        
+                                        os.rename(old_path, new_path)
+                                        logger.info(f"重命名文件: {old_path} -> {new_path}")
+                                        processed += 1
+                                        with tasks_lock:
+                                            if task_id in tasks:
+                                                tasks[task_id]['progress'] = processed
+                                                tasks[task_id]['current'] = new_path
+                                except Exception as e:
+                                    failed_file = entry.path
+                                    failed_files.append({'path': failed_file, 'error': str(e)})
+                                    logger.error(f"处理文件失败: {failed_file}, 错误: {e}")
                 except Exception as e:
-                    # 记录失败的文件
-                    failed_files.append({'path': path, 'error': str(e)})
-                    logger.error(f"处理文件失败: {path}, 错误: {e}")
+                    logger.error(f"扫描目录 {current_dir} 失败: {e}")
         
-        logger.info(f"修复完成，共处理 {processed} 个文件，跳过 {len(skipped_files)} 个文件，失败 {len(failed_files)} 个文件")
-        return jsonify({
-            'processed': processed,
-            'skipped_files': skipped_files,
-            'failed_files': failed_files
-        })
-    except Exception as e:
-        logger.error(f"修复文件后缀失败: {e}")
-        return jsonify({'error': f'修复文件后缀失败: {e}'}), 500
+        try:
+            for path in selected_paths:
+                if os.path.isdir(path):
+                    process_directory(path)
+                elif os.path.isfile(path):
+                    try:
+                        filename = os.path.basename(path)
+                        if filename.startswith('.'):
+                            pass
+                        else:
+                            name_without_ext, ext = os.path.splitext(filename)
+                            ext_lower = ext.lower()
+                            needs_fix = any(c.isupper() for c in ext[1:]) or ext_lower == '.jpeg'
+                            
+                            if needs_fix:
+                                new_ext = '.jpg' if ext_lower == '.jpeg' else ext_lower
+                                new_name = f"{name_without_ext}{new_ext}"
+                                dirname = os.path.dirname(path)
+                                new_path = os.path.join(dirname, new_name)
+                                
+                                if os.path.exists(new_path):
+                                    skipped_files.append(path)
+                                else:
+                                    os.rename(path, new_path)
+                                    logger.info(f"重命名文件: {path} -> {new_path}")
+                                    processed += 1
+                                    with tasks_lock:
+                                        if task_id in tasks:
+                                            tasks[task_id]['progress'] = processed
+                                            tasks[task_id]['current'] = new_path
+                    except Exception as e:
+                        failed_files.append({'path': path, 'error': str(e)})
+                        logger.error(f"处理文件失败: {path}, 错误: {e}")
+            
+            logger.info(f"修复完成，共处理 {processed} 个文件，跳过 {len(skipped_files)} 个文件，失败 {len(failed_files)} 个文件")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'completed'
+                    tasks[task_id]['result'] = {
+                        'processed': processed,
+                        'skipped_files': skipped_files,
+                        'failed_files': failed_files
+                    }
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
+        except Exception as e:
+            logger.error(f"修复文件后缀失败: {e}")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'failed'
+                    tasks[task_id]['error'] = str(e)
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
+    
+    thread = threading.Thread(target=run_fix_task)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'task_id': task_id, 'task_type': 'fix_extensions'})
 
 @app.route('/search_files', methods=['POST'])
 def search_files():
@@ -1547,7 +1624,7 @@ def search_files():
     搜索文件
     请求方法: POST
     请求参数: selected_paths - 要搜索的文件或文件夹路径列表，pattern - 搜索模式，is_regex - 是否使用正则表达式，case_sensitive - 是否区分大小写
-    返回: JSON格式的结果，包括匹配的文件列表
+    返回: JSON格式的结果，包括任务ID和任务类型，前端根据taskId轮询任务状态
     """
     selected_paths = request.json.get('selected_paths', [])
     pattern = request.json.get('pattern', '')
@@ -1563,84 +1640,112 @@ def search_files():
         logger.warning("未指定搜索模式")
         return jsonify({'error': '未指定搜索模式'}), 400
     
-    import re
+    task_id = str(uuid.uuid4())
     
-    # 编译正则表达式
-    try:
-        if is_regex:
-            flags = 0 if case_sensitive else re.IGNORECASE
-            regex = re.compile(pattern, flags)
-        else:
-            # 普通搜索，转义正则表达式特殊字符
-            escaped_pattern = re.escape(pattern)
-            flags = 0 if case_sensitive else re.IGNORECASE
-            regex = re.compile(escaped_pattern, flags)
-    except re.error as e:
-        logger.error(f"正则表达式错误: {e}")
-        return jsonify({'error': f'正则表达式错误: {e}'}), 400
+    with tasks_lock:
+        tasks[task_id] = {
+            'id': task_id,
+            'type': 'search',
+            'status': 'running',
+            'progress': 0,
+            'total': 0,
+            'current': '',
+            'result': None,
+            'error': None,
+            'start_time': datetime.now().isoformat(),
+            'end_time': None,
+            'params': {
+                'selected_paths': selected_paths,
+                'pattern': pattern,
+                'is_regex': is_regex,
+                'case_sensitive': case_sensitive
+            }
+        }
     
-    matched_files = []
+    def run_search_task():
+        import re
+        try:
+            if is_regex:
+                flags = 0 if case_sensitive else re.IGNORECASE
+                regex = re.compile(pattern, flags)
+            else:
+                escaped_pattern = re.escape(pattern)
+                flags = 0 if case_sensitive else re.IGNORECASE
+                regex = re.compile(escaped_pattern, flags)
+            
+            matched_files = []
+            
+            def scan_directory_for_files(dir_path):
+                nonlocal matched_files
+                stack = [dir_path]
+                while stack:
+                    current_dir = stack.pop()
+                    try:
+                        with os.scandir(current_dir) as entries:
+                            for entry in entries:
+                                if entry.name.startswith('.'):
+                                    continue
+                                if entry.is_dir(follow_symlinks=False):
+                                    stack.append(entry.path)
+                                elif entry.is_file(follow_symlinks=False):
+                                    file = entry.name
+                                    file_path = entry.path
+                                    if regex.search(file):
+                                        try:
+                                            size = entry.stat().st_size
+                                            ext = os.path.splitext(file)[1].lstrip('.') or 'unknown'
+                                            matched_files.append({
+                                                "name": file,
+                                                "path": file_path,
+                                                "size": size,
+                                                "ext": ext
+                                            })
+                                            with tasks_lock:
+                                                if task_id in tasks:
+                                                    tasks[task_id]['progress'] = len(matched_files)
+                                                    tasks[task_id]['current'] = file_path
+                                        except Exception as e:
+                                            logger.error(f"获取文件信息失败: {file_path}, 错误: {str(e)}")
+                    except Exception as e:
+                        logger.error(f"扫描目录 {current_dir} 失败: {e}")
+            
+            for path in selected_paths:
+                if os.path.isdir(path):
+                    scan_directory_for_files(path)
+                elif os.path.isfile(path):
+                    file = os.path.basename(path)
+                    if regex.search(file):
+                        try:
+                            size = os.path.getsize(path)
+                            ext = os.path.splitext(file)[1].lstrip('.') or 'unknown'
+                            matched_files.append({
+                                "name": file,
+                                "path": path,
+                                "size": size,
+                                "ext": ext
+                            })
+                        except Exception as e:
+                            logger.error(f"获取文件信息失败: {path}, 错误: {str(e)}")
+            
+            logger.info(f"搜索完成，找到 {len(matched_files)} 个匹配文件")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'completed'
+                    tasks[task_id]['result'] = {"success": True, "files": matched_files, "total": len(matched_files)}
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
+        except Exception as e:
+            logger.error(f"搜索文件失败: {e}")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'failed'
+                    tasks[task_id]['error'] = str(e)
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
     
-    def scan_directory_for_files(dir_path):
-        """使用os.scandir迭代扫描目录中的文件"""
-        stack = [dir_path]
-        while stack:
-            current_dir = stack.pop()
-            try:
-                with os.scandir(current_dir) as entries:
-                    for entry in entries:
-                        # 跳过隐藏文件和目录
-                        if entry.name.startswith('.'):
-                            continue
-                        if entry.is_dir(follow_symlinks=False):
-                            # 将子目录添加到栈中
-                            stack.append(entry.path)
-                        elif entry.is_file(follow_symlinks=False):
-                            file = entry.name
-                            file_path = entry.path
-                            # 检查文件名是否匹配
-                            if regex.search(file):
-                                try:
-                                    # 获取文件大小
-                                    size = entry.stat().st_size
-                                    # 获取文件扩展名
-                                    ext = os.path.splitext(file)[1].lstrip('.') or 'unknown'
-                                    matched_files.append({
-                                        "name": file,
-                                        "path": file_path,
-                                        "size": size,
-                                        "ext": ext
-                                    })
-                                except Exception as e:
-                                    logger.error(f"获取文件信息失败: {file_path}, 错误: {str(e)}")
-            except Exception as e:
-                logger.error(f"扫描目录 {current_dir} 失败: {e}")
+    thread = threading.Thread(target=run_search_task)
+    thread.daemon = True
+    thread.start()
     
-    # 遍历所有选中的路径
-    for path in selected_paths:
-        if os.path.isdir(path):
-            # 使用os.scandir迭代扫描目录
-            scan_directory_for_files(path)
-        elif os.path.isfile(path):
-            # 检查单个文件是否匹配
-            file = os.path.basename(path)
-            if regex.search(file):
-                try:
-                    # 获取文件大小
-                    size = os.path.getsize(path)
-                    # 获取文件扩展名
-                    ext = os.path.splitext(file)[1].lstrip('.') or 'unknown'
-                    matched_files.append({
-                        "name": file,
-                        "path": path,
-                        "size": size,
-                        "ext": ext
-                    })
-                except Exception as e:
-                    logger.error(f"获取文件信息失败: {path}, 错误: {str(e)}")
-    
-    logger.info(f"搜索完成，找到 {len(matched_files)} 个匹配文件")
-    return jsonify({"success": True, "files": matched_files})
+    return jsonify({'task_id': task_id, 'task_type': 'search'})
 
 @app.route('/delete_file', methods=['POST'])
 def delete_file():
@@ -1684,7 +1789,7 @@ def delete_files_by_format():
     根据文件格式删除文件
     请求方法: POST
     请求参数: selected_paths - 要处理的文件或文件夹路径列表，format - 要删除的文件格式
-    返回: JSON格式的结果，包括删除的文件数量
+    返回: JSON格式的结果，包括任务ID和任务类型，前端根据taskId轮询任务状态
     """
     selected_paths = request.json.get('selected_paths', [])
     format = request.json.get('format', '')
@@ -1698,80 +1803,113 @@ def delete_files_by_format():
         logger.warning("未指定要删除的文件格式")
         return jsonify({'error': '未指定要删除的文件格式'}), 400
     
-    deleted_count = 0  # 删除的文件数
+    task_id = str(uuid.uuid4())
     
-    try:
-        for path in selected_paths:
-            # 检查路径是否在BASE_DIR范围内
-            if not os.path.normpath(path).startswith(os.path.normpath(BASE_DIR)):
-                logger.warning(f"路径 {path} 不在BASE_DIR {BASE_DIR} 范围内，跳过处理")
-                continue
-                
-            if os.path.isdir(path):
-                logger.info(f"删除目录中的文件: {path}")
-                
-                def scan_directory_for_deletion(dir_path):
-                    """使用os.scandir迭代扫描目录中的文件进行删除"""
-                    nonlocal deleted_count
-                    stack = [dir_path]
-                    while stack:
-                        current_dir = stack.pop()
-                        try:
-                            with os.scandir(current_dir) as entries:
-                                for entry in entries:
-                                    if entry.is_dir(follow_symlinks=False):
-                                        # 将子目录添加到栈中
-                                        stack.append(entry.path)
-                                    elif entry.is_file(follow_symlinks=False):
-                                        filepath = entry.path
-                                        # 再次检查文件路径是否在BASE_DIR范围内
-                                        if not os.path.normpath(filepath).startswith(os.path.normpath(BASE_DIR)):
-                                            logger.warning(f"文件路径 {filepath} 不在BASE_DIR {BASE_DIR} 范围内，跳过删除")
-                                            continue
+    with tasks_lock:
+        tasks[task_id] = {
+            'id': task_id,
+            'type': 'delete_files_by_format',
+            'status': 'running',
+            'progress': 0,
+            'total': 0,
+            'current': '',
+            'result': None,
+            'error': None,
+            'start_time': datetime.now().isoformat(),
+            'end_time': None,
+            'params': {
+                'selected_paths': selected_paths,
+                'format': format
+            }
+        }
+    
+    def run_delete_task():
+        deleted_count = 0
+        deleted_files = []
+        try:
+            for path in selected_paths:
+                if not os.path.normpath(path).startswith(os.path.normpath(BASE_DIR)):
+                    logger.warning(f"路径 {path} 不在BASE_DIR {BASE_DIR} 范围内，跳过处理")
+                    continue
+                    
+                if os.path.isdir(path):
+                    logger.info(f"删除目录中的文件: {path}")
+                    
+                    def scan_directory_for_deletion(dir_path):
+                        nonlocal deleted_count, deleted_files
+                        stack = [dir_path]
+                        while stack:
+                            current_dir = stack.pop()
+                            try:
+                                with os.scandir(current_dir) as entries:
+                                    for entry in entries:
+                                        if entry.is_dir(follow_symlinks=False):
+                                            stack.append(entry.path)
+                                        elif entry.is_file(follow_symlinks=False):
+                                            filepath = entry.path
+                                            if not os.path.normpath(filepath).startswith(os.path.normpath(BASE_DIR)):
+                                                logger.warning(f"文件路径 {filepath} 不在BASE_DIR {BASE_DIR} 范围内，跳过删除")
+                                                continue
                                             
-                                        # 跳过隐藏文件
-                                        if entry.name.startswith('.'):
-                                            continue
-                                        
-                                        # 获取文件扩展名（区分大小写）
-                                        file_ext = os.path.splitext(entry.name)[1][1:]  # [1:] 移除点号，保持原始大小写
-                                        # 如果文件没有扩展名，使用'无扩展名'
-                                        if not file_ext:
-                                            file_ext = '无扩展名'
-                                        
-                                        # 检查文件格式是否匹配
-                                        if file_ext == format:
-                                            # 删除文件
-                                            os.remove(filepath)
-                                            deleted_count += 1
-                                            logger.info(f"删除文件: {filepath}")
-                        except Exception as e:
-                            logger.error(f"扫描目录 {current_dir} 失败: {e}")
-                
-                # 使用os.scandir迭代扫描目录进行删除
-                scan_directory_for_deletion(path)
-            elif os.path.isfile(path):
-                logger.info(f"检查文件: {path}")
-                # 检查单个文件
-                filename = os.path.basename(path)
-                # 获取文件扩展名（区分大小写）
-                file_ext = os.path.splitext(filename)[1][1:]  # [1:] 移除点号，保持原始大小写
-                # 如果文件没有扩展名，使用'无扩展名'
-                if not file_ext:
-                    file_ext = '无扩展名'
-                
-                # 检查文件格式是否匹配
-                if file_ext == format:
-                    # 删除文件
-                    os.remove(path)
-                    deleted_count += 1
-                    logger.info(f"删除文件: {path}")
-        
-        logger.info(f"删除完成，共删除 {deleted_count} 个文件")
-        return jsonify({'deleted_count': deleted_count})
-    except Exception as e:
-        logger.error(f"删除文件失败: {e}")
-        return jsonify({'error': f'删除文件失败: {e}'}), 500
+                                            if entry.name.startswith('.'):
+                                                continue
+                                            
+                                            file_ext = os.path.splitext(entry.name)[1][1:]
+                                            if not file_ext:
+                                                file_ext = '无扩展名'
+                                            
+                                            if file_ext == format:
+                                                os.remove(filepath)
+                                                deleted_count += 1
+                                                deleted_files.append(filepath)
+                                                logger.info(f"删除文件: {filepath}")
+                                                with tasks_lock:
+                                                    if task_id in tasks:
+                                                        tasks[task_id]['progress'] = deleted_count
+                                                        tasks[task_id]['current'] = filepath
+                            except Exception as e:
+                                logger.error(f"扫描目录 {current_dir} 失败: {e}")
+                    
+                    scan_directory_for_deletion(path)
+                elif os.path.isfile(path):
+                    logger.info(f"检查文件: {path}")
+                    filename = os.path.basename(path)
+                    file_ext = os.path.splitext(filename)[1][1:]
+                    if not file_ext:
+                        file_ext = '无扩展名'
+                    
+                    if file_ext == format:
+                        os.remove(path)
+                        deleted_count += 1
+                        deleted_files.append(path)
+                        logger.info(f"删除文件: {path}")
+                        with tasks_lock:
+                            if task_id in tasks:
+                                tasks[task_id]['progress'] = deleted_count
+                                tasks[task_id]['current'] = path
+            
+            logger.info(f"删除完成，共删除 {deleted_count} 个文件")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'completed'
+                    tasks[task_id]['result'] = {
+                        'deleted_count': deleted_count,
+                        'deleted_files': deleted_files
+                    }
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
+        except Exception as e:
+            logger.error(f"删除文件失败: {e}")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'failed'
+                    tasks[task_id]['error'] = str(e)
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
+    
+    thread = threading.Thread(target=run_delete_task)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'task_id': task_id, 'task_type': 'delete_files_by_format'})
 
 @app.route('/compress_images', methods=['POST'])
 def compress_images():
@@ -1816,7 +1954,8 @@ def compress_images():
             'current_file': '',
             'failed_files': [],
             'skipped_files': [],
-            'task_type': 'convert'
+            'task_type': 'compress',
+            'target_format': ''
         }
     
     # 获取所有图片文件
@@ -1914,7 +2053,7 @@ def compress_images():
                 progress_data['processed'] += 1
     
     # 在新线程中处理图片，避免阻塞主线程
-    def process_images_async():
+    def 	process_images_async():
         # 使用多线程处理
         logger.info(f"使用 {max_workers} 个线程开始处理图片")
         
@@ -2036,7 +2175,8 @@ def convert_images():
             'current_file': '',
             'failed_files': [],
             'skipped_files': [],
-            'task_type': 'convert'
+            'task_type': 'convert',
+            'target_format': target_format
         }
     
     # 获取所有图片文件，排除目标格式
@@ -2331,7 +2471,9 @@ def reset_progress():
             'final_size': 0,
             'current_file': '',  # 当前正在处理的图片路径
             'failed_files': [],
-            'skipped_files': []
+            'skipped_files': [],
+            'task_type': '',
+            'target_format': ''
         }
         logger.info("进度状态已重置为idle")
     return jsonify({'status': 'success'})
@@ -2375,8 +2517,7 @@ def clean_empty_folders():
     清理空文件夹
     请求方法: POST
     请求参数: selected_paths - 要清理的文件或文件夹路径列表
-    返回: JSON格式的清理结果，包括删除的文件夹数量
-    说明: 从最里层开始删除空文件夹，支持嵌套空文件夹清理
+    返回: JSON格式的结果，包括任务ID和任务类型，前端根据taskId轮询任务状态
     """
     selected_paths = request.json.get('selected_paths', [])
     logger.info(f"开始清理空文件夹，选中路径: {selected_paths}")
@@ -2385,74 +2526,96 @@ def clean_empty_folders():
         logger.warning("未选中任何文件或文件夹")
         return jsonify({'error': '未选中任何文件或文件夹'}), 400
     
-    deleted_count = 0  # 删除的文件夹数量
+    task_id = str(uuid.uuid4())
     
-    def clean_empty_dirs_recursive(directory):
-        """
-        迭代清理空文件夹，从最里层开始（后序遍历）
-        """
-        nonlocal deleted_count
-        
-        if not os.path.isdir(directory):
-            return False
-        
-        # 使用栈来模拟递归，保存目录路径和是否已访问
-        stack = [(directory, False)]
-        
-        while stack:
-            current_dir, visited = stack.pop()
+    with tasks_lock:
+        tasks[task_id] = {
+            'id': task_id,
+            'type': 'clean_empty_folders',
+            'status': 'running',
+            'progress': 0,
+            'total': 0,
+            'current': '',
+            'result': None,
+            'error': None,
+            'start_time': datetime.now().isoformat(),
+            'end_time': None,
+            'params': {
+                'selected_paths': selected_paths
+            }
+        }
+    
+    def run_clean_task():
+        deleted_count = 0
+        def clean_empty_dirs_recursive(directory):
+            nonlocal deleted_count
             
-            if visited:
-                # 后序遍历，处理当前目录
-                try:
-                    # 检查当前文件夹是否为空
-                    is_empty = True
-                    with os.scandir(current_dir) as entries:
-                        for entry in entries:
-                            is_empty = False
-                            break
-                    
-                    if is_empty:  # 空文件夹
-                        os.rmdir(current_dir)
-                        logger.info(f"删除空文件夹: {current_dir}")
-                        deleted_count += 1
-                except Exception as e:
-                    logger.error(f"检查或删除文件夹失败: {current_dir}, 错误: {e}")
-            else:
-                # 前序遍历，将子目录添加到栈中
-                try:
-                    # 获取所有子目录，跳过隐藏目录
-                    subdirs = []
-                    with os.scandir(current_dir) as entries:
-                        for entry in entries:
-                            if entry.is_dir(follow_symlinks=False) and not entry.name.startswith('.'):
-                                subdirs.append(entry.path)
-                    
-                    # 先将当前目录标记为已访问，然后将子目录添加到栈中（逆序添加，保证处理顺序）
-                    stack.append((current_dir, True))
-                    # 逆序添加子目录，保证处理顺序
-                    for subdir in reversed(subdirs):
-                        stack.append((subdir, False))
-                except Exception as e:
-                    logger.error(f"扫描目录 {current_dir} 失败: {e}")
+            if not os.path.isdir(directory):
+                return False
+            
+            stack = [(directory, False)]
+            
+            while stack:
+                current_dir, visited = stack.pop()
+                
+                if visited:
+                    try:
+                        is_empty = True
+                        with os.scandir(current_dir) as entries:
+                            for entry in entries:
+                                is_empty = False
+                                break
+                        
+                        if is_empty:
+                            os.rmdir(current_dir)
+                            logger.info(f"删除空文件夹: {current_dir}")
+                            deleted_count += 1
+                            with tasks_lock:
+                                if task_id in tasks:
+                                    tasks[task_id]['progress'] = deleted_count
+                                    tasks[task_id]['current'] = current_dir
+                    except Exception as e:
+                        logger.error(f"检查或删除文件夹失败: {current_dir}, 错误: {e}")
+                else:
+                    try:
+                        subdirs = []
+                        with os.scandir(current_dir) as entries:
+                            for entry in entries:
+                                if entry.is_dir(follow_symlinks=False) and not entry.name.startswith('.'):
+                                    subdirs.append(entry.path)
+                        
+                        stack.append((current_dir, True))
+                        for subdir in reversed(subdirs):
+                            stack.append((subdir, False))
+                    except Exception as e:
+                        logger.error(f"扫描目录 {current_dir} 失败: {e}")
+            
+            return True
         
-        return True
+        try:
+            for path in selected_paths:
+                if os.path.isdir(path):
+                    clean_empty_dirs_recursive(path)
+            
+            logger.info(f"清理空文件夹完成，共删除 {deleted_count} 个空文件夹")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'completed'
+                    tasks[task_id]['result'] = {"deleted_count": deleted_count}
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
+        except Exception as e:
+            logger.error(f"清理空文件夹失败: {e}")
+            with tasks_lock:
+                if task_id in tasks:
+                    tasks[task_id]['status'] = 'failed'
+                    tasks[task_id]['error'] = str(e)
+                    tasks[task_id]['end_time'] = datetime.now().isoformat()
     
-    try:
-        for path in selected_paths:
-            if os.path.isdir(path):
-                logger.info(f"清理目录下的空文件夹: {path}")
-                clean_empty_dirs_recursive(path)
-            elif os.path.isfile(path):
-                # 如果是文件，跳过
-                logger.info(f"跳过文件: {path}")
-                continue
-        
-        logger.info(f"清理空文件夹完成，共删除 {deleted_count} 个空文件夹")
-        return jsonify({'deleted_count': deleted_count})
-    except Exception as e:
-        logger.error(f"清理空文件夹失败: {e}")
-        return jsonify({'error': f'清理空文件夹失败: {e}'}), 500
+    thread = threading.Thread(target=run_clean_task)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'task_id': task_id, 'task_type': 'clean_empty_folders'})
 
 @app.route('/get_config')
 def get_config():
@@ -2475,6 +2638,70 @@ def get_version():
     """
     logger.info(f"获取应用版本号: {APP_VERSION}")
     return jsonify({'version': APP_VERSION})
+
+@app.route('/get_task_status/<task_id>')
+def get_task_status_route(task_id):
+    """
+    获取任务状态
+    请求方法: GET
+    请求参数: task_id - 任务ID
+    返回: JSON格式的任务状态，包括进度、结果或错误信息
+    """
+    with tasks_lock:
+        task = tasks.get(task_id, None)
+    
+    if task is None:
+        return jsonify({
+            'task_id': task_id,
+            'status': 'not_found',
+            'error': None
+        })
+    
+    logger.info(f"获取任务状态: {task_id}, 状态: {task.get('status')}")
+    
+    return jsonify({
+        'task_id': task_id,
+        'type': task.get('type'),
+        'status': task.get('status'),
+        'progress': task.get('progress', 0),
+        'current': task.get('current', ''),
+        'result': task.get('result'),
+        'error': task.get('error'),
+        'start_time': task.get('start_time'),
+        'end_time': task.get('end_time'),
+        'params': task.get('params', {})
+    })
+
+@app.route('/cleanup_tasks', methods=['POST'])
+def cleanup_tasks():
+    """
+    清理已完成的任务
+    请求方法: POST
+    返回: JSON格式的清理结果
+    """
+    cleanup_completed_tasks()
+    return jsonify({'status': 'success'})
+
+@app.route('/get_running_tasks')
+def get_running_tasks():
+    """
+    获取所有运行中的任务
+    请求方法: GET
+    返回: JSON格式的运行中任务列表
+    """
+    running_tasks = []
+    with tasks_lock:
+        for task_id, task in tasks.items():
+            if task.get('status') == 'running':
+                running_tasks.append({
+                    'task_id': task_id,
+                    'type': task.get('type'),
+                    'progress': task.get('progress', 0),
+                    'current': task.get('current', ''),
+                    'start_time': task.get('start_time'),
+                    'params': task.get('params', {})
+                })
+    return jsonify({'tasks': running_tasks})
 
 if __name__ == '__main__':
     app.run(debug=DEBUG, host='0.0.0.0', port=5000)

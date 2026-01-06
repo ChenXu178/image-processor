@@ -27,6 +27,10 @@ let baseDir = '';
 let supportedFormats = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'heic', 'bmp', 'gif', 'tiff'];
 // 进度轮询定时器
 let progressInterval = null;
+// 任务轮询定时器
+let taskPollInterval = null;
+// 当前正在轮询的任务ID
+let currentTaskId = null;
 // 是否正在进行图片处理（压缩或转换）
 let isProcessing = false;
 // 是否正在发送停止请求
@@ -268,7 +272,10 @@ $(document).ready(function() {
     
     // 加载支持的格式列表
     loadSupportedFormats();
-    
+
+    // 检查是否有运行中的任务
+    checkRunningTasks();
+
     // 初始检查一次进度
     updateProgress();
     
@@ -468,12 +475,9 @@ $(document).ready(function() {
     $('#start-search-btn').on('click', function() {
         const pattern = $('#search-pattern').val();
         if (!pattern) {
-            showToast('请输入搜索模式');
+            showToast('请输入搜索关键字');
             return;
         }
-        
-        // 显示加载动画
-        $('#loading').show();
         
         // 如果未选中文件，使用当前路径作为搜索路径
         const searchPaths = selectedFiles.length > 0 ? selectedFiles : [currentPath];
@@ -490,169 +494,33 @@ $(document).ready(function() {
                 case_sensitive: $('#search-case-sensitive').is(':checked')
             }),
             success: function(response) {
-                $('#loading').hide();
+                const taskId = response.task_id;
+                const taskType = response.task_type;
                 
-                // 生成搜索结果HTML
-                let resultHtml = '<h3>搜索结果</h3>';
-                resultHtml += '<div class="mb-3">';
-                resultHtml += '<p><strong>匹配文件数:</strong> <span id="search-result-count">' + response.files.length + '</span></p>';
-                resultHtml += '</div>';
+                log('info', '搜索任务已启动，task_id: ' + taskId);
                 
-                if (response.files.length > 0) {
-                    resultHtml += '<div class="pre-scrollable">';
-                    resultHtml += '<div class="list-group">';
-                    
-                    // 遍历搜索结果生成列表项
-                    for (const file of response.files) {
-                        // 统一处理jpg和jpeg格式，将jpeg转换为jpg后检查
-                        const fileExt = file.ext.toLowerCase() === 'jpeg' ? 'jpg' : file.ext.toLowerCase();
-                        const isImage = supportedFormats.includes(fileExt);
-                        
-                        resultHtml += '<div class="list-group-item list-group-item-action search-result-item" data-path="' + file.path + '" data-is-image="' + isImage + '">';
-                        resultHtml += '<div class="d-flex justify-content-between align-items-center">';
-
-                        resultHtml += '<div class="search-result-item-name">';
-                        resultHtml += '<strong>' + file.name + '</strong>';
-                        resultHtml += '<br>';
-                        resultHtml += '<small class="text-muted search-result-path">' + file.path + '</small>';
-
-                        resultHtml += '<br>';
-                        resultHtml += '<small class="text-muted">大小: ' + formatFileSize(file.size) + ' | 类型: ' + file.ext + '</small>';
-                        resultHtml += '</div>';
-                        resultHtml += '<div class="btn-group search-result-actions">';
-
-                        resultHtml += '<button class="btn btn-danger btn-sm delete-btn" data-path="' + file.path + '" title="删除">删除</button>';
-                        resultHtml += '<button class="btn btn-primary btn-sm jump-btn" data-path="' + file.path + '" title="跳转">跳转</button>';
-                        resultHtml += '</div>';
-                        resultHtml += '</div>';
-                        resultHtml += '</div>';
-                    }
-                    
-                    resultHtml += '</div>';
-                    resultHtml += '</div>';
-                } else {
-                    resultHtml += '<div class="alert alert-info">未找到匹配的文件</div>';
-                }
+                // 显示加载动画
+                $('#loading-text').text('正在搜索文件...');
+                $('#loading').show();
                 
-                // 更新搜索结果
-                $('#search-results').html(resultHtml);
-                
-                // 为跳转按钮添加点击事件
-                $('.jump-btn').on('click', function() {
-                    const path = $(this).data('path');
-                    // 获取文件所在目录
-                    const lastSepIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
-                    const dirPath = path.substring(0, lastSepIndex);
-                    // 跳转到该目录
-                    currentPath = dirPath;
-                    // 更新当前路径显示
-                    $('#current-path').text(currentPath);
-                    // 加载文件列表
-                    loadFiles();
-                    // 关闭搜索模态框
-                    $('#search-modal').modal('hide');
-                });
-                
-                // 为删除按钮添加点击事件
-                $('.delete-btn').on('click', function() {
-                    const $btn = $(this);
-                    const path = $btn.data('path');
-                    const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
-                    
-                    // 显示确认对话框
-                    customConfirm(`确定要删除文件 "${filename}" 吗？此操作不可恢复！`, function(confirmed) {
-                        if (confirmed) {
-                            // 显示加载动画
-                            $('#loading').show();
-                            
-                            // 发送删除请求
-                            $.ajax({
-                                url: '/delete_file',
-                                type: 'POST',
-                                contentType: 'application/json',
-                                data: JSON.stringify({ path: path }),
-                                success: function(response) {
-                                    $('#loading').hide();
-                                    showToast(`成功删除文件 "${filename}"`);
-                                    // 刷新文件列表
-                                    loadFiles();
-                                    // 隐藏被删除的文件行
-                                    $btn.closest('.list-group-item').hide();
-                                    // 更新搜索结果匹配文件数
-                                    const currentCount = parseInt($('#search-result-count').text());
-                                    if (currentCount > 0) {
-                                        const newCount = currentCount - 1;
-                                        $('#search-result-count').text(newCount);
-                                        // 如果匹配文件数变为0，更新搜索结果显示
-                                        if (newCount === 0) {
-                                            $('#search-results').html('<h3>搜索结果</h3><div class="mb-3"><p><strong>匹配文件数:</strong> <span id="search-result-count">0</span></p></div><div class="alert alert-info">未找到匹配的文件</div>');
-                                        }
-                                    }
-                                },
-                                error: function(xhr, status, error) {
-                                    $('#loading').hide();
-                                    // 获取更具体的错误信息
-                                    let errorMessage = error;
-                                    if (xhr.responseJSON && xhr.responseJSON.error) {
-                                        errorMessage = xhr.responseJSON.error;
-                                    } else if (xhr.responseText) {
-                                        try {
-                                            const response = JSON.parse(xhr.responseText);
-                                            errorMessage = response.error || errorMessage;
-                                        } catch (e) {
-                                            // 如果不是JSON格式，使用响应文本
-                                            errorMessage = xhr.responseText;
-                                        }
-                                    }
-                                    customAlert('删除失败: ' + errorMessage, '错误', 'error');
-                                }
-                            });
-                        }
-                    });
-                });
-                
-                // 为搜索结果列表项添加点击事件
-                $('.search-result-item').on('click', function(e) {
-                    // 检查点击的是否是按钮，如果是按钮则不触发列表项的点击事件
-                    if ($(e.target).closest('button').length > 0) {
-                        return;
-                    }
-                    
-                    const path = $(this).data('path');
-                    const isImage = $(this).data('is-image');
-                    
-                    if (isImage) {
-                        // 如果是图片，调用预览函数
-                        previewImage(path);
-                    } else {
-                        // 如果是其他文件，执行下载
-                        const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
-                        const link = document.createElement('a');
-                        link.href = '/download?path=' + encodeURIComponent(path);
-                        link.download = filename;
-                        document.body.appendChild(link);
-                        link.click();
-                        document.body.removeChild(link);
+                // 轮询任务状态
+                pollTaskStatus(taskId, function(task, status) {
+                    // 加载动画
+                    $('#loading').hide();
+                    log('info', '搜索任务状态: ' + status);
+                    if (status === 'completed') {
+                        showSearchResult(task);
+                    } else if (status === 'failed') {
+                        customAlert('搜索失败: ' + (task.error || '未知错误'), '错误', 'error');
+                    } else if (status === 'error') {
+                        customAlert('获取任务状态失败', '错误', 'error');
                     }
                 });
             },
             error: function(xhr, status, error) {
-                    $('#loading').hide();
-                    // 获取更具体的错误信息
-                    let errorMessage = error;
-                    if (xhr.responseJSON && xhr.responseJSON.error) {
-                        errorMessage = xhr.responseJSON.error;
-                    } else if (xhr.responseText) {
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            errorMessage = response.error || errorMessage;
-                        } catch (e) {
-                            // 如果不是JSON格式，使用响应文本
-                            errorMessage = xhr.responseText;
-                        }
-                    }
-                    customAlert('搜索失败: ' + errorMessage, '错误', 'error');
-                }
+                $('#loading').hide();
+                customAlert('启动搜索失败: ' + error, '错误', 'error');
+            }
         });
     });
     
@@ -660,8 +528,6 @@ $(document).ready(function() {
     $('#count-formats-btn').on('click', function() {
         // 关闭当前可能显示的悬浮预览
         hideHoverPreview();
-        // 显示加载动画
-        $('#loading').show();
         
         // 如果未选中文件，使用当前路径作为统计路径
         const countPaths = selectedFiles.length > 0 ? selectedFiles : [currentPath];
@@ -673,137 +539,33 @@ $(document).ready(function() {
             contentType: 'application/json',
             data: JSON.stringify({ selected_paths: countPaths }),
             success: function(response) {
-                $('#loading').hide();
+                const taskId = response.task_id;
+                const taskType = response.task_type;
                 
-                // 生成统计结果HTML
-                let resultHtml = '<div class="mb-3">';
-                resultHtml += '<p><strong>总文件数:</strong> ' + response.total_files + '</p>';
-                resultHtml += '<p><strong>总大小:</strong> ' + formatFileSize(response.total_size) + '</p>';
-                resultHtml += '</div>';
-                resultHtml += '<div class="table-responsive">';
-                resultHtml += '<table class="table table-bordered">';
-                resultHtml += '<thead class="thead-light">';
-                resultHtml += '<tr>';
-                resultHtml += '<th>格式</th>';
-                resultHtml += '<th>数量</th>';
-                resultHtml += '<th>总大小</th>';
-                resultHtml += '<th>平均大小</th>';
-                resultHtml += '<th>操作</th>';
-                resultHtml += '</tr>';
-                resultHtml += '</thead>';
-                resultHtml += '<tbody>';
+                log('info', '统计任务已启动，task_id: ' + taskId);
                 
-                // 将文件格式按数量从大到小排序
-                const sortedFormats = Object.entries(response.format_count).sort((a, b) => {
-                    // 按数量降序排序
-                    return b[1] - a[1];
-                });
+                // 显示加载动画
+                $('#loading-text').text('正在统计文件格式...');
+                $('#loading').show();
                 
-                // 遍历排序后的数组生成表格行
-                for (const [format, count] of sortedFormats) {
-                    const size = response.format_size[format] || 0;
-                    const avgSize = count > 0 ? size / count : 0;
-                    resultHtml += '<tr>';
-                    resultHtml += '<td>' + format + '</td>';
-                    resultHtml += '<td>' + count + '</td>';
-                    resultHtml += '<td>' + formatFileSize(size) + '</td>';
-                    resultHtml += '<td>' + formatFileSize(avgSize) + '</td>';
-                    resultHtml += '<td><button class="btn btn-danger btn-sm delete-format-btn" data-format="' + format + '" title="删除所有该格式文件">删除</button></td>';
-                    resultHtml += '</tr>';
-                }
-                
-                resultHtml += '</tbody>';
-                resultHtml += '</table>';
-                resultHtml += '</div>';
-                
-                // 更新模态框内容并显示
-                $('#statistics-result').html(resultHtml);
-                $('#statistics-modal').modal('show');
-                
-                // 保存统计时使用的路径，用于后续删除操作
-                const currentCountPaths = countPaths;
-                
-                // 为删除按钮添加点击事件
-                $('.delete-format-btn').on('click', function() {
-                    const $btn = $(this);
-                    const format = $btn.data('format');
-                    const count = response.format_count[format];
-                    
-                    // 显示确认对话框
-                    customConfirm(`确定要删除所有${format}格式的文件吗？共${count}个文件将被删除，此操作不可恢复！`, function(confirmed) {
-                        if (confirmed) {
-                            // 显示加载动画
-                            $('#loading').show();
-                            
-                            // 发送删除请求，使用统计时的路径
-                            $.ajax({
-                                url: '/delete_files_by_format',
-                                type: 'POST',
-                                contentType: 'application/json',
-                                data: JSON.stringify({
-                                    selected_paths: currentCountPaths,
-                                    format: format
-                                }),
-                                success: function(response) {
-                                    $('#loading').hide();
-                                    customAlert(`成功删除${response.deleted_count}个${format}格式的文件`);
-                                    // 刷新文件列表
-                                    loadFiles();
-                                    // 隐藏被删除的文件类型行，不关闭模态框
-                                    $btn.closest('tr').hide();
-                                },
-                                error: function(xhr, status, error) {
-                                        $('#loading').hide();
-                                        // 获取更具体的错误信息
-                                        let errorMessage = error;
-                                        if (xhr.responseJSON && xhr.responseJSON.error) {
-                                            errorMessage = xhr.responseJSON.error;
-                                        } else if (xhr.responseText) {
-                                            try {
-                                                const response = JSON.parse(xhr.responseText);
-                                                errorMessage = response.error || errorMessage;
-                                            } catch (e) {
-                                                // 如果不是JSON格式，使用响应文本
-                                                errorMessage = xhr.responseText;
-                                            }
-                                        }
-                                        customAlert('删除失败: ' + errorMessage, '错误', 'error');
-                                    }
-                            });
-                        }
-                    });
-                });
-                
-                // 为统计结果模态框的关闭按钮添加点击事件
-                $('#statistics-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
-                    // 清空已选择列表
-                    selectedFiles = [];
-                    // 更新已选择文件列表显示
-                    updateSelectedFilesList();
-                    // 更新左侧文件列表中的所有复选框
-                    const checkboxes = $('.file-list-item .checkbox');
-                    checkboxes.prop('checked', false);
-                    // 更新按钮状态
-                    updateButtons();
+                // 轮询任务状态
+                pollTaskStatus(taskId, function(task, status) {
+                    // 加载动画
+                    $('#loading').hide();
+                    log('info', '统计任务状态: ' + status);
+                    if (status === 'completed') {
+                        showCountFormatsResult(task);
+                    } else if (status === 'failed') {
+                        customAlert('统计失败: ' + (task.error || '未知错误'), '错误', 'error');
+                    } else if (status === 'error') {
+                        customAlert('获取任务状态失败', '错误', 'error');
+                    }
                 });
             },
             error: function(xhr, status, error) {
-                    $('#loading').hide();
-                    // 获取更具体的错误信息
-                    let errorMessage = error;
-                    if (xhr.responseJSON && xhr.responseJSON.error) {
-                        errorMessage = xhr.responseJSON.error;
-                    } else if (xhr.responseText) {
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            errorMessage = response.error || errorMessage;
-                        } catch (e) {
-                            // 如果不是JSON格式，使用响应文本
-                            errorMessage = xhr.responseText;
-                        }
-                    }
-                    customAlert('统计失败: ' + errorMessage, '错误', 'error');
-                }
+                $('#loading').hide();
+                customAlert('启动统计失败: ' + error, '错误', 'error');
+            }
         });
     });
     
@@ -821,137 +583,41 @@ $(document).ready(function() {
                 return;
             }
         
-        // 显示加载动画
-        $('#loading').show();
-        
-        // 发送请求修复文件后缀
-        $.ajax({
-            url: '/fix_extensions',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ selected_paths: selectedFiles }),
-            success: function(response) {
-                $('#loading').hide();
-                
-                // 调试信息
-                log('debug', '修复结果响应:', response);
-                
-                // 准备结果数据，确保是数组类型
-                const processed = response.processed || 0;
-                const skippedFiles = Array.isArray(response.skipped_files) ? response.skipped_files : [];
-                const failedFiles = Array.isArray(response.failed_files) ? response.failed_files : [];
-                
-                // 更新结果摘要
-                let summaryHtml = `<p><strong>修复完成，共处理 ${processed} 个文件</strong></p>`;
-                if (skippedFiles.length > 0) {
-                    summaryHtml += `<p class="text-warning">跳过 ${skippedFiles.length} 个文件（文件已存在）</p>`;
-                }
-                if (failedFiles.length > 0) {
-                    summaryHtml += `<p class="text-danger">修复失败 ${failedFiles.length} 个文件</p>`;
-                }
-                $('#fix-result-summary').html(summaryHtml);
-                
-                // 为模态框添加关闭事件，清除之前的列表内容
-                $('#fix-result-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
-                    // 清除摘要信息
-                    $('#fix-result-summary').html('');
+            // 发送请求修复文件后缀
+            $.ajax({
+                url: '/fix_extensions',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ selected_paths: selectedFiles }),
+                success: function(response) {
+                    const taskId = response.task_id;
+                    const taskType = response.task_type;
                     
-                    // 清除跳过列表
-                    $('#fix-skipped-files-list').html('');
-                    $('#fix-skipped-count').text('0');
-                    $('#fix-skipped-files-section').hide();
+                    log('info', '修复任务已启动，task_id: ' + taskId);
                     
-                    // 清除失败列表
-                    $('#fix-failed-files-list').html('');
-                    $('#fix-failed-count').text('0');
-                    $('#fix-failed-files-section').hide();
+                    // 显示加载动画
+                    $('#loading-text').text('正在修复文件后缀...');
+                    $('#loading').show();
                     
-                    // 调试信息
-                    log('debug', '修复结果模态框已关闭，已清除所有内容');
-                });
-                
-                // 显示结果模态框
-                $('#fix-result-modal').modal('show');
-                
-                // 延迟设置内部元素显示状态，确保模态框已经显示
-                setTimeout(function() {
-                    // 显示跳过的文件列表
-                    if (skippedFiles.length > 0) {
-                        $('#skipped-count').text(skippedFiles.length);
-                        
-                        // 生成HTML，使用带分割线的样式
-                    let skippedHtml = '';
-                    for (let i = 0; i < skippedFiles.length; i++) {
-                        const file = skippedFiles[i];
-                        skippedHtml += `<div class="rename-file-item">${file}</div>`;
-                    }
-                    
-                    // 设置文件列表内容
-                    $('#fix-skipped-files-list').html(skippedHtml);
-                        
-                        // 显示section
-                        $('#fix-skipped-files-section').show();
-                    } else {
-                        // 隐藏跳过文件section
-                        $('#fix-skipped-files-section').hide();
-                    }
-                    
-                    // 显示失败的文件列表
-                    if (failedFiles.length > 0) {
-                        $('#failed-count').text(failedFiles.length);
-                        
-                        // 生成HTML，使用带分割线的样式
-                    let failedHtml = '';
-                    for (let i = 0; i < failedFiles.length; i++) {
-                        const file = failedFiles[i];
-                        const filePath = file.path || '未知路径';
-                        const fileError = file.error || '未知错误';
-                        failedHtml += `<div class="rename-file-item"><strong>${filePath}</strong>: ${fileError}</div>`;
-                    }
-                    
-                    // 设置文件列表内容
-                    $('#fix-failed-files-list').html(failedHtml);
-                        
-                        // 显示section
-                        $('#fix-failed-files-section').show();
-                    } else {
-                        // 隐藏失败文件section
-                        $('#fix-failed-files-section').hide();  
-                    }
-                }, 100);
-                
-                // 调试信息：显示模态框调用
-                log('debug', '显示修复结果模态框');
-                
-                // 清空已选择列表
-                selectedFiles = [];
-                // 更新已选择文件列表显示
-                updateSelectedFilesList();
-                const checkboxes = $('.file-list-item .checkbox');
-                checkboxes.prop('checked', false);
-                // 更新按钮状态
-                updateButtons();
-                // 刷新文件列表
-                loadFiles();
-            },
-            error: function(xhr, status, error) {
-                    $('#loading').hide();
-                    // 获取更具体的错误信息
-                    let errorMessage = error;
-                    if (xhr.responseJSON && xhr.responseJSON.error) {
-                        errorMessage = xhr.responseJSON.error;
-                    } else if (xhr.responseText) {
-                        try {
-                            const response = JSON.parse(xhr.responseText);
-                            errorMessage = response.error || errorMessage;
-                        } catch (e) {
-                            // 如果不是JSON格式，使用响应文本
-                            errorMessage = xhr.responseText;
+                    // 轮询任务状态
+                    pollTaskStatus(taskId, function(task, status) {
+                        // 隐藏加载动画
+                        $('#loading').hide();
+                        log('info', '修复任务状态: ' + status);
+                        if (status === 'completed') {
+                            showFixExtensionsResult(task);
+                        } else if (status === 'failed') {
+                            customAlert('修复失败: ' + (task.error || '未知错误'), '错误', 'error');
+                        } else if (status === 'error') {
+                            customAlert('获取任务状态失败', '错误', 'error');
                         }
-                    }
-                    customAlert('修复失败: ' + errorMessage, '错误', 'error');
+                    });
+                },
+                error: function(xhr, status, error) {
+                    $('#loading').hide();
+                    customAlert('启动修复失败: ' + error, '错误', 'error');
                 }
-        });
+            });
         });
     });
     
@@ -969,9 +635,6 @@ $(document).ready(function() {
                 return;
             }
             
-            // 显示加载动画
-            $('#loading').show();
-            
             // 发送请求清理空文件夹
             $.ajax({
                 url: '/clean_empty_folders',
@@ -979,36 +642,33 @@ $(document).ready(function() {
                 contentType: 'application/json',
                 data: JSON.stringify({ selected_paths: selectedFiles }),
                 success: function(response) {
-                    $('#loading').hide();
-                    customAlert('清理完成，共删除 ' + response.deleted_count + ' 个空文件夹');
-                    // 清空已选择列表
-                    selectedFiles = [];
-                    // 更新已选择文件列表显示
-                    updateSelectedFilesList();
-                    const checkboxes = $('.file-list-item .checkbox');
-                    checkboxes.prop('checked', false);
-                    // 更新按钮状态
-                    updateButtons();
-                    // 刷新文件列表
-                    loadFiles();
+                    const taskId = response.task_id;
+                    const taskType = response.task_type;
+                    
+                    log('info', '清理任务已启动，task_id: ' + taskId);
+                    
+                    // 显示加载动画
+                    $('#loading-text').text('正在清理空文件夹...');
+                    $('#loading').show();
+                    
+                    // 轮询任务状态
+                    pollTaskStatus(taskId, function(task, status) {
+                        // 隐藏加载动画
+                        $('#loading').hide();
+                        log('info', '清理任务状态: ' + status);
+                        if (status === 'completed') {
+                            showCleanEmptyFoldersResult(task);
+                        } else if (status === 'failed') {
+                            customAlert('清理失败: ' + (task.error || '未知错误'), '错误', 'error');
+                        } else if (status === 'error') {
+                            customAlert('获取任务状态失败', '错误', 'error');
+                        }
+                    });
                 },
                 error: function(xhr, status, error) {
-                        $('#loading').hide();
-                        // 获取更具体的错误信息
-                        let errorMessage = error;
-                        if (xhr.responseJSON && xhr.responseJSON.error) {
-                            errorMessage = xhr.responseJSON.error;
-                        } else if (xhr.responseText) {
-                            try {
-                                const response = JSON.parse(xhr.responseText);
-                                errorMessage = response.error || errorMessage;
-                            } catch (e) {
-                                // 如果不是JSON格式，使用响应文本
-                                errorMessage = xhr.responseText;
-                            }
-                        }
-                        customAlert('清理失败: ' + errorMessage, '错误', 'error');
-                    }
+                    $('#loading').hide();
+                    customAlert('启动清理失败: ' + error, '错误', 'error');
+                }
             });
         });
     });
@@ -1359,6 +1019,10 @@ function loadFiles(autoEnter = true, fromHistory = false) {
             
             currentPath = response.current_path;
             $('#current-path').text(currentPath);
+            
+            // 保存当前路径到localStorage
+            localStorage.setItem('currentPath', currentPath);
+            log('debug', '已保存当前路径到缓存: ' + currentPath);
             
             // 更新历史记录
             if (!fromHistory) {
@@ -2114,6 +1778,22 @@ function updateProgress() {
             // 处理进度状态
             if (response.status === 'running') {
                 log('debug', '进度状态为running，显示进度窗口');
+                
+                // 根据处理类型更新进度标题
+                const taskType = response.task_type || '';
+                if (taskType === 'compress') {
+                    $('#progress-title').text('图片压缩');
+                } else if (taskType === 'convert') {
+                    const targetFormat = response.target_format || '';
+                    if (targetFormat) {
+                        $('#progress-title').text(`图片转换成${targetFormat}`);
+                    } else {
+                        $('#progress-title').text('图片转换');
+                    }
+                } else {
+                    $('#progress-title').text('处理进度');
+                }
+                
                 // 处理运行中，更新当前文件路径显示
                 $('#current-file').show();
                 // 处理运行中，显示进度窗口
@@ -2277,6 +1957,411 @@ function formatFileSize(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
+// 任务轮询函数
+function pollTaskStatus(taskId, callback) {
+    currentTaskId = taskId;
+    let requestInFlight = false;
+    
+    function checkTask() {
+        if (currentTaskId !== taskId) {
+            return;
+        }
+        
+        if (requestInFlight) {
+            return;
+        }
+        requestInFlight = true;
+        
+        $.ajax({
+            url: '/get_task_status/' + taskId,
+            type: 'GET',
+            success: function(response) {
+                requestInFlight = false;
+                
+                if (currentTaskId !== taskId) {
+                    return;
+                }
+                
+                // 任务不存在，按完成处理
+                if (response.status === 'not_found') {
+                    stopTaskPolling();
+                    if (callback) callback(response, 'completed');
+                    return;
+                }
+                
+                if (response.error) {
+                    log('error', '获取任务状态失败: ' + response.error);
+                    stopTaskPolling();
+                    if (callback) callback(response, 'error');
+                    return;
+                }
+                
+                // 检查任务是否完成
+                if (response.status === 'completed') {
+                    stopTaskPolling();
+                    if (callback) callback(response, 'completed');
+                } else if (response.status === 'failed') {
+                    stopTaskPolling();
+                    if (callback) callback(response, 'failed');
+                } else if (response.status === 'running') {
+                    // 继续轮询
+                    taskPollInterval = setTimeout(checkTask, 500);
+                }
+            },
+            error: function(xhr, status, error) {
+                requestInFlight = false;
+                
+                // 如果是中止请求，不记录错误
+                if (status === 'abort') {
+                    return;
+                }
+                
+                log('error', '获取任务状态请求失败: ' + error);
+                stopTaskPolling();
+                if (callback) callback(null, 'error');
+            }
+        });
+    }
+    
+    // 开始轮询
+    taskPollInterval = setTimeout(checkTask, 500);
+}
+
+// 停止任务轮询
+function stopTaskPolling() {
+    if (taskPollInterval) {
+        clearTimeout(taskPollInterval);
+        taskPollInterval = null;
+    }
+    currentTaskId = null;
+}
+
+// 搜索结果展示
+function showSearchResult(task) {
+    const result = task.result;
+    if (!result || !result.files) {
+        customAlert('搜索失败: 未找到结果', '错误', 'error');
+        return;
+    }
+    
+    let resultHtml = '<h3>搜索结果</h3>';
+    resultHtml += '<div class="mb-3">';
+    resultHtml += '<p><strong>匹配文件数:</strong> <span id="search-result-count">' + result.total + '</span></p>';
+    resultHtml += '</div>';
+    
+    if (result.files.length > 0) {
+        resultHtml += '<div class="pre-scrollable">';
+        resultHtml += '<div class="list-group">';
+        
+        for (const file of result.files) {
+            const fileExt = file.ext.toLowerCase() === 'jpeg' ? 'jpg' : file.ext.toLowerCase();
+            const isImage = supportedFormats.includes(fileExt);
+            
+            resultHtml += '<div class="list-group-item list-group-item-action search-result-item" data-path="' + file.path + '" data-is-image="' + isImage + '">';
+            resultHtml += '<div class="d-flex justify-content-between align-items-center">';
+            resultHtml += '<div class="search-result-item-name">';
+            resultHtml += '<strong>' + file.name + '</strong>';
+            resultHtml += '<br>';
+            resultHtml += '<small class="text-muted search-result-path">' + file.path + '</small>';
+            resultHtml += '<br>';
+            resultHtml += '<small class="text-muted">大小: ' + formatFileSize(file.size) + ' | 类型: ' + file.ext + '</small>';
+            resultHtml += '</div>';
+            resultHtml += '<div class="btn-group search-result-actions">';
+            resultHtml += '<button class="btn btn-danger btn-sm delete-btn" data-path="' + file.path + '" title="删除">删除</button>';
+            resultHtml += '<button class="btn btn-primary btn-sm jump-btn" data-path="' + file.path + '" title="跳转">跳转</button>';
+            resultHtml += '</div>';
+            resultHtml += '</div>';
+            resultHtml += '</div>';
+        }
+        
+        resultHtml += '</div>';
+        resultHtml += '</div>';
+    } else {
+        resultHtml += '<div class="alert alert-info">未找到匹配的文件</div>';
+    }
+    
+    $('#search-results').html(resultHtml);
+    
+    // 显示搜索模态框
+    $('#search-modal').modal('show');
+    
+    // 绑定跳转和删除按钮事件
+    bindSearchResultEvents();
+}
+
+// 统计结果展示
+function showCountFormatsResult(task) {
+    const result = task.result;
+    if (!result) {
+        customAlert('统计失败', '错误', 'error');
+        return;
+    }
+    
+    let resultHtml = '<div class="mb-3">';
+    resultHtml += '<p><strong>总文件数:</strong> ' + result.total_files + '</p>';
+    resultHtml += '<p><strong>总大小:</strong> ' + formatFileSize(result.total_size) + '</p>';
+    resultHtml += '</div>';
+    resultHtml += '<div class="table-responsive">';
+    resultHtml += '<table class="table table-bordered">';
+    resultHtml += '<thead class="thead-light">';
+    resultHtml += '<tr>';
+    resultHtml += '<th>格式</th>';
+    resultHtml += '<th>数量</th>';
+    resultHtml += '<th>总大小</th>';
+    resultHtml += '<th>平均大小</th>';
+    resultHtml += '<th>操作</th>';
+    resultHtml += '</tr>';
+    resultHtml += '</thead>';
+    resultHtml += '<tbody>';
+    
+    const sortedFormats = Object.entries(result.format_count).sort((a, b) => b[1] - a[1]);
+    
+    for (const [format, count] of sortedFormats) {
+        const size = result.format_size[format] || 0;
+        const avgSize = count > 0 ? size / count : 0;
+        resultHtml += '<tr>';
+        resultHtml += '<td>' + format + '</td>';
+        resultHtml += '<td>' + count + '</td>';
+        resultHtml += '<td>' + formatFileSize(size) + '</td>';
+        resultHtml += '<td>' + formatFileSize(avgSize) + '</td>';
+        resultHtml += '<td><button class="btn btn-danger btn-sm delete-format-btn" data-format="' + format + '" title="删除所有该格式文件">删除</button></td>';
+        resultHtml += '</tr>';
+    }
+    
+    resultHtml += '</tbody>';
+    resultHtml += '</table>';
+    resultHtml += '</div>';
+    
+    $('#statistics-result').html(resultHtml);
+    $('#statistics-modal').modal('show');
+    
+    // 绑定删除按钮事件
+    $('.delete-format-btn').on('click', function() {
+        const $btn = $(this);
+        const format = $btn.data('format');
+        const count = result.format_count[format];
+        
+        customConfirm(`确定要删除所有${format}格式的文件吗？共${count}个文件将被删除，此操作不可恢复！`, function(confirmed) {
+            if (!confirmed) {
+                return;
+            }
+            
+            // 如果未选中文件，使用当前路径作为删除路径
+            const deletePaths = selectedFiles.length > 0 ? selectedFiles : [currentPath];
+            
+            $.ajax({
+                url: '/delete_files_by_format',
+                type: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({
+                    selected_paths: deletePaths,
+                    format: format
+                }),
+                success: function(response) {
+                    const taskId = response.task_id;
+                    const taskType = response.task_type;
+                    
+                    log('info', '删除任务已启动，task_id: ' + taskId);
+                    
+                    // 显示加载动画
+                    $('#loading-text').text('正在删除文件...');
+                    $('#loading').show();
+                    
+                    // 轮询任务状态
+                    pollTaskStatus(taskId, function(task, status) {
+                        // 隐藏加载动画
+                        $('#loading').hide();
+                        log('info', '删除任务状态: ' + status);
+                        if (status === 'completed') {
+                            showDeleteFilesResult(task, format);
+                        } else if (status === 'failed') {
+                            customAlert('删除失败: ' + (task.error || '未知错误'), '错误', 'error');
+                        } else if (status === 'error') {
+                            customAlert('获取任务状态失败', '错误', 'error');
+                        }
+                    });
+                },
+                error: function(xhr, status, error) {
+                    $('#loading').hide();
+                    customAlert('启动删除失败: ' + error, '错误', 'error');
+                }
+            });
+        });
+    });
+}
+
+// 修复后缀结果展示
+function showFixExtensionsResult(task) {
+    const result = task.result;
+    if (!result) {
+        customAlert('修复失败', '错误', 'error');
+        return;
+    }
+    
+    const processed = result.processed || 0;
+    const skippedFiles = Array.isArray(result.skipped_files) ? result.skipped_files : [];
+    const failedFiles = Array.isArray(result.failed_files) ? result.failed_files : [];
+    
+    let summaryHtml = `<p><strong>修复完成，共处理 ${processed} 个文件</strong></p>`;
+    if (skippedFiles.length > 0) {
+        summaryHtml += `<p class="text-warning">跳过 ${skippedFiles.length} 个文件（文件已存在）</p>`;
+    }
+    if (failedFiles.length > 0) {
+        summaryHtml += `<p class="text-danger">修复失败 ${failedFiles.length} 个文件</p>`;
+    }
+    $('#fix-result-summary').html(summaryHtml);
+    
+    // 显示跳过的文件列表
+    if (skippedFiles.length > 0) {
+        $('#skipped-count').text(skippedFiles.length);
+        let skippedHtml = '';
+        for (let i = 0; i < skippedFiles.length; i++) {
+            skippedHtml += `<div class="rename-file-item">${skippedFiles[i]}</div>`;
+        }
+        $('#fix-skipped-files-list').html(skippedHtml);
+        $('#fix-skipped-files-section').show();
+    } else {
+        $('#fix-skipped-files-section').hide();
+    }
+    
+    // 显示失败的文件列表
+    if (failedFiles.length > 0) {
+        $('#failed-count').text(failedFiles.length);
+        let failedHtml = '';
+        for (let i = 0; i < failedFiles.length; i++) {
+            const file = failedFiles[i];
+            const filePath = file.path || '未知路径';
+            const fileError = file.error || '未知错误';
+            failedHtml += `<div class="rename-file-item"><strong>${filePath}</strong>: ${fileError}</div>`;
+        }
+        $('#fix-failed-files-list').html(failedHtml);
+        $('#fix-failed-files-section').show();
+    } else {
+        $('#fix-failed-files-section').hide();
+    }
+    
+    $('#fix-result-modal').modal('show');
+    
+    // 清空已选择列表
+    selectedFiles = [];
+    updateSelectedFilesList();
+    const checkboxes = $('.file-list-item .checkbox');
+    checkboxes.prop('checked', false);
+    updateButtons();
+    loadFiles();
+}
+
+// 删除文件结果展示
+function showDeleteFilesResult(task, format) {
+    const result = task.result;
+    if (!result) {
+        customAlert('删除失败', '错误', 'error');
+        return;
+    }
+    
+    const deletedCount = result.deleted_count || 0;
+    customAlert(`成功删除 ${deletedCount} 个 ${format} 格式的文件`);
+    
+    // 清空已选择列表并刷新文件列表
+    selectedFiles = [];
+    updateSelectedFilesList();
+    const checkboxes = $('.file-list-item .checkbox');
+    checkboxes.prop('checked', false);
+    updateButtons();
+    loadFiles();
+}
+
+// 清理空文件夹结果展示
+function showCleanEmptyFoldersResult(task) {
+    const result = task.result;
+    if (!result) {
+        customAlert('清理失败', '错误', 'error');
+        return;
+    }
+    
+    customAlert('清理完成，共删除 ' + result.deleted_count + ' 个空文件夹');
+    
+    // 清空已选择列表
+    selectedFiles = [];
+    updateSelectedFilesList();
+    const checkboxes = $('.file-list-item .checkbox');
+    checkboxes.prop('checked', false);
+    updateButtons();
+    loadFiles();
+}
+
+// 绑定搜索结果事件
+function bindSearchResultEvents() {
+    $('.jump-btn').on('click', function() {
+        const path = $(this).data('path');
+        const lastSepIndex = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+        const dirPath = path.substring(0, lastSepIndex);
+        currentPath = dirPath;
+        $('#current-path').text(currentPath);
+        loadFiles();
+        $('#search-modal').modal('hide');
+    });
+    
+    $('.delete-btn').on('click', function() {
+        const $btn = $(this);
+        const path = $btn.data('path');
+        const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+        
+        customConfirm(`确定要删除文件 "${filename}" 吗？此操作不可恢复！`, function(confirmed) {
+            if (confirmed) {
+                $('#loading-text').text('正在搜索文件...');
+                $('#loading').show();
+                
+                $.ajax({
+                    url: '/delete_file',
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ path: path }),
+                    success: function(response) {
+                        $('#loading').hide();
+                        showToast(`成功删除文件 "${filename}"`);
+                        loadFiles();
+                        $btn.closest('.list-group-item').hide();
+                        const currentCount = parseInt($('#search-result-count').text());
+                        if (currentCount > 0) {
+                            const newCount = currentCount - 1;
+                            $('#search-result-count').text(newCount);
+                            if (newCount === 0) {
+                                $('#search-results').html('<h3>搜索结果</h3><div class="mb-3"><p><strong>匹配文件数:</strong> <span id="search-result-count">0</span></p></div><div class="alert alert-info">未找到匹配的文件</div>');
+                            }
+                        }
+                    },
+                    error: function(xhr, status, error) {
+                        $('#loading').hide();
+                        customAlert('删除失败: ' + error, '错误', 'error');
+                    }
+                });
+            }
+        });
+    });
+    
+    $('.search-result-item').on('click', function(e) {
+        if ($(e.target).closest('button').length > 0) {
+            return;
+        }
+        
+        const path = $(this).data('path');
+        const isImage = $(this).data('is-image');
+        
+        if (isImage) {
+            previewImage(path);
+        } else {
+            const filename = path.substring(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+            const link = document.createElement('a');
+            link.href = '/download?path=' + encodeURIComponent(path);
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    });
+}
+
 /**
  * 加载配置信息
  * 从后端获取配置的BASE_DIR路径和CPU核心数
@@ -2294,6 +2379,16 @@ function loadConfig() {
             baseDir = response.base_dir;
             // 设置当前路径为baseDir
             currentPath = baseDir;
+            
+            // 从localStorage读取保存的路径
+            const savedPath = localStorage.getItem('currentPath');
+            log('info', '从缓存读取保存的路径: ' + savedPath);
+            
+            // 验证保存的路径是否有效（以baseDir开头）
+            if (savedPath && savedPath.startsWith(baseDir)) {
+                currentPath = savedPath;
+                log('info', '使用保存的路径: ' + currentPath);
+            }
             
             // 初始化历史记录，添加基础目录到历史记录
             history = [baseDir];
@@ -2318,7 +2413,6 @@ function loadConfig() {
             $('#convert-thread-count').val(defaultThreads);
             $('#convert-thread-value').text(defaultThreads);
             
-            // 加载文件列表
             log('info', '设置当前路径为', baseDir);
             loadFiles();
         },
@@ -2331,6 +2425,130 @@ function loadConfig() {
             loadFiles();
         }
     });
+}
+
+// 检查运行中的任务
+function checkRunningTasks(callback) {
+    log('info', '检查运行中的任务');
+    
+    $.ajax({
+        url: '/get_running_tasks',
+        type: 'GET',
+        success: function(response) {
+            const tasks = response.tasks || [];
+            
+            if (tasks.length === 0) {
+                log('info', '没有运行中的任务');
+                if (callback) callback();
+                return;
+            }
+            
+            log('info', '发现 ' + tasks.length + ' 个运行中的任务');
+            
+            // 处理所有任务类型，包括搜索任务
+            const relevantTasks = tasks.filter(t => 
+                t.type === 'count_formats' || 
+                t.type === 'fix_extensions' || 
+                t.type === 'clean_empty_folders' ||
+                t.type === 'delete_files_by_format' ||
+                t.type === 'search'
+            );
+            
+            if (relevantTasks.length === 0) {
+                log('info', '没有需要处理的任务');
+                if (callback) callback();
+                return;
+            }
+            
+            // 只处理第一个相关任务
+            const task = relevantTasks[0];
+            const taskId = task.task_id;
+            const taskType = task.type;
+            const params = task.params || {};
+            
+            log('info', '继续监控任务: ' + taskId + ', 类型: ' + taskType);
+            
+            // 恢复任务参数（非搜索任务）
+            if (taskType !== 'search' && params.selected_paths && Array.isArray(params.selected_paths) && params.selected_paths.length > 0) {
+                selectedFiles = params.selected_paths;
+                updateSelectedFilesList();
+                log('info', '已恢复任务参数: selectedFiles=' + JSON.stringify(selectedFiles));
+            }
+            
+            // 搜索任务特殊处理：恢复搜索参数
+            if (taskType === 'search') {
+                $('#search-pattern').val(params.pattern || '');
+                $('#search-regex').prop('checked', params.is_regex || false);
+                $('#search-case-sensitive').prop('checked', params.case_sensitive || false);
+                log('info', '已恢复搜索参数: pattern=' + params.pattern + ', is_regex=' + params.is_regex + ', case_sensitive=' + params.case_sensitive);
+            }
+            
+            // 显示加载动画
+            $('#loading-text').text(getTaskLoadingText(taskType));
+            $('#loading').show();
+            
+            // 轮询任务状态
+            pollTaskStatus(taskId, function(taskResult, status) {
+                // 隐藏加载动画
+                $('#loading').hide();
+                
+                if (status === 'completed') {
+                    log('任务完成，展示结果');
+                    handleTaskResult(taskResult);
+                } else if (status === 'failed') {
+                    customAlert('任务失败: ' + (taskResult.error || '未知错误'), '错误', 'error');
+                } else if (status === 'error') {
+                    customAlert('获取任务状态失败', '错误', 'error');
+                }
+                
+                if (callback) callback();
+            });
+        },
+        error: function(xhr, status, error) {
+            log('error', '检查运行中任务失败', error);
+            if (callback) callback();
+        }
+    });
+}
+
+// 获取任务对应的加载提示文字
+function getTaskLoadingText(taskType) {
+    const taskTypeTexts = {
+        'count_formats': '正在统计文件格式...',
+        'fix_extensions': '正在修复文件后缀...',
+        'clean_empty_folders': '正在清理空文件夹...',
+        'delete_files_by_format': '正在删除文件...',
+        'search': '正在搜索文件...'
+    };
+    return taskTypeTexts[taskType] || '正在处理...';
+}
+
+// 处理任务结果
+function handleTaskResult(task) {
+    const taskType = task.type;
+    const params = task.params || {};
+    
+    switch (taskType) {
+        case 'count_formats':
+            showCountFormatsResult(task);
+            break;
+        case 'fix_extensions':
+            showFixExtensionsResult(task);
+            break;
+        case 'clean_empty_folders':
+            showCleanEmptyFoldersResult(task);
+            break;
+        case 'delete_files_by_format': {
+            const format = params.format || '';
+            showDeleteFilesResult(task, format);
+            break;
+        }
+        case 'search':
+            showSearchResult(task);
+            break;
+        default:
+            log('warn', '未知任务类型: ' + taskType);
+    }
 }
 
 // 加载支持的格式列表
