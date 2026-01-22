@@ -709,6 +709,15 @@ body {
     border-radius: 4px;
 }
 
+#fix-skipped-files-list,
+#fix-failed-files-list {
+    max-height: 200px;
+    background-color: #f8f9fa;
+    padding-left: 10px;
+    padding-right: 10px;
+    border-radius: 4px;
+}
+
 /* 提示模态框样式 */
 #toast-modal {
     z-index: 12000;
@@ -736,4 +745,59 @@ body {
 /* 搜索结果按钮组样式 */
 .search-result-actions {
     flex-shrink: 0;
+}
+
+/* 上传文件列表样式 */
+.selected-upload-files {
+    background-color: #f8f9fa;
+    padding: 10px;
+    border-radius: 4px;
+}
+
+#upload-files-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+#upload-files-list .list-group-item {
+    padding: 8px 12px;
+    border-bottom: 1px solid #e9ecef;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+#upload-files-list .list-group-item:last-child {
+    border-bottom: none;
+}
+
+#upload-current-file-path {
+    color: #333; 
+    word-break: break-all;
+}
+
+.upload-file-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.upload-file-size {
+    color: #6c757d;
+    font-size: 12px;
+    margin-left: 10px;
+}
+
+/* 上传进度部分样式 */
+.upload-progress-section,
+.process-progress-section {
+    margin-bottom: 20px;
+}
+
+/* 上传进度模态框底部按钮区域 */
+#upload-progress-footer {
+    display: flex;
+    justify-content: space-between;
 }

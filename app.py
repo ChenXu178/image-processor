@@ -1,25 +1,23 @@
-from flask import Flask, render_template, request, jsonify, session, send_file
+from flask import Flask, render_template, request, jsonify, send_file
 import os
 import threading
+import shutil
 from datetime import datetime
 from PIL import Image
 import concurrent.futures
 import mimetypes
 import logging
+from logging.handlers import RotatingFileHandler
 import subprocess
 import platform
 import io
 import traceback
 import uuid
-import queue
 from pdf2image import convert_from_path
 from natsort import natsorted, ns
 from pypinyin import lazy_pinyin
 import locale
-
-
-# 配置日志记录
-from logging.handlers import RotatingFileHandler
+from geopy.geocoders import Nominatim
 
 # 创建log文件夹（如果不存在）
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log')
@@ -93,9 +91,6 @@ def get_app_version():
 
 # 初始化应用版本号
 APP_VERSION = get_app_version()
-
-# 导入geopy库用于地址查询
-from geopy.geocoders import Nominatim
 
 # 初始化geocoder
 gelocator = Nominatim(user_agent="image-processor", timeout=5)
@@ -478,7 +473,7 @@ def compress_image(img_path, quality):
             logger.warning(f"专门的压缩工具不可用，回退到ImageMagick: {e}")
     
     # Windows平台或专门工具不可用时，使用ImageMagick
-    logger.debug(f"使用ImageMagick压缩图片")
+    logger.debug("使用ImageMagick压缩图片")
     result = compress_image_with_imagemagick(img_path, quality)
     logger.info(f"ImageMagick压缩结果: {'成功' if result else '失败'}")
     return result
@@ -896,12 +891,11 @@ def preview_image():
                 exif_data = img._getexif()
                 if exif_data:
                     from PIL.ExifTags import TAGS, GPSTAGS
-                    from fractions import Fraction
                     
                     # 导入EXIF字段名中英文映射字典
                     from exif_mapping import exif_field_map
                     # 导入EXIF标签类型和扩展值映射
-                    from optimize_exif_parsing import EXIF_TAG_TYPES, extended_value_mappings
+                    from optimize_exif_parsing import extended_value_mappings
                     # 使用全局的地理编码库配置，避免在请求处理函数内部导入和初始化
                     
                     # 将EXIF标签ID转换为可读名称
@@ -1247,7 +1241,7 @@ def preview_file(filepath):
             
             # 如果图片分辨率超过1920x1080，调整大小
             if width > 1920 or height > 1080:
-                logger.info(f"图片分辨率超过1920x1080，需要调整大小")
+                logger.info("图片分辨率超过1920x1080，需要调整大小")
                 
                 # 计算调整后的尺寸，保持原始比例
                 ratio = min(1920/width, 1080/height)
@@ -2157,7 +2151,7 @@ def convert_images():
     
     if has_pdf and target_format.lower() != 'jpg':
         if skip_pdf:
-            logger.info(f"检测到PDF文件，目标格式不是jpg，已选择跳过PDF文件处理")
+            logger.info("检测到PDF文件，目标格式不是jpg，已选择跳过PDF文件处理")
         else:
             logger.warning(f"PDF文件只能转换为jpg格式，请求的格式: {target_format}")
             return jsonify({'error': 'PDF文件只能转换为jpg格式'}), 400
@@ -2703,5 +2697,806 @@ def get_running_tasks():
                 })
     return jsonify({'tasks': running_tasks})
 
+upload_progress_data = {}
+upload_progress_lock = threading.Lock()
+
+def get_upload_task_dir(task_id):
+    """获取上传任务的临时目录路径"""
+    temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp', 'uploads')
+    return os.path.join(temp_dir, task_id)
+
+@app.route('/upload_images', methods=['POST'])
+def upload_images():
+    """
+    上传图片文件进行处理
+    请求方法: POST
+    请求参数: files - 上传的文件列表, process_type - 处理类型(compress/convert), quality - 质量, max_workers - 线程数, target_format - 目标格式, skip_pdf - 是否跳过PDF
+    返回: JSON格式的结果，包括任务ID
+    """
+    global upload_progress_data
+    
+    # 检查是否有文件上传
+    if 'files' not in request.files:
+        return jsonify({'error': '没有上传文件'}), 400
+    
+    files = request.files.getlist('files')
+    if not files or len(files) == 0 or all(file.filename == '' for file in files):
+        return jsonify({'error': '没有上传文件'}), 400
+    
+    # 获取处理参数
+    process_type = request.form.get('process_type', 'compress')
+    quality = int(request.form.get('quality', 80))
+    max_workers = int(request.form.get('max_workers', 4))
+    target_format = request.form.get('target_format', 'jpg')
+    skip_pdf = request.form.get('skip_pdf', 'true').lower() == 'true'
+    pdf_password = request.form.get('pdf_password', '') or ''
+    
+    logger.info(f"开始上传处理文件，数量: {len(files)}, 处理类型: {process_type}, 质量: {quality}, 线程数: {max_workers}, 目标格式: {target_format}, 跳过PDF: {skip_pdf}, PDF密码: {'已设置' if pdf_password else '无'}")
+    
+    # 创建任务ID
+    task_id = str(uuid.uuid4())
+    
+    # 创建临时目录
+    task_dir = get_upload_task_dir(task_id)
+    os.makedirs(task_dir, exist_ok=True)
+    
+    # 初始化进度数据
+    with upload_progress_lock:
+        upload_progress_data[task_id] = {
+            'status': 'running',
+            'total': len(files),
+            'processed': 0,
+            'uploaded': 0,
+            'current_file': '',
+            'failed_files': [],
+            'original_size': 0,
+            'final_size': 0,
+            'start_time': datetime.now().isoformat(),
+            'task_dir': task_dir,
+            'process_type': process_type,
+            'quality': quality,
+            'max_workers': max_workers,
+            'target_format': target_format,
+            'skip_pdf': skip_pdf,
+            'download_url': None
+        }
+    
+    # 保存上传的文件
+    uploaded_files = []
+    for file in files:
+        if file and file.filename:
+            # 获取文件扩展名
+            ext = os.path.splitext(file.filename)[1].lower()[1:] if '.' in file.filename else ''
+            
+            # 只接受支持的格式
+            if ext not in SUPPORTED_FORMATS:
+                logger.warning(f"跳过不支持的文件格式: {file.filename}")
+                continue
+            
+            # 保存文件
+            file_path = os.path.join(task_dir, file.filename)
+            file.save(file_path)
+            uploaded_files.append(file_path)
+            
+            logger.info(f"已保存上传的文件: {file_path}")
+    
+    # 更新上传进度
+    with upload_progress_lock:
+        if task_id in upload_progress_data:
+            upload_progress_data[task_id]['uploaded'] = len(uploaded_files)
+            upload_progress_data[task_id]['total'] = len(uploaded_files)
+    
+    # 在后台线程中处理文件
+    def process_uploaded_files():
+        with upload_progress_lock:
+            if task_id not in upload_progress_data:
+                return
+            upload_progress_data[task_id]
+        
+        try:
+            all_images = []
+            pdf_files = []
+            
+            # 获取所有图片文件
+            for file_path in uploaded_files:
+                if os.path.isfile(file_path):
+                    if file_path.lower().endswith('.pdf'):
+                        # PDF文件单独处理
+                        pdf_files.append(file_path)
+                    elif is_image_file(file_path):
+                        all_images.append(file_path)
+            
+            # PDF文件处理规则：
+            # 1. 目标格式是PDF：PDF文件跳过处理，直接添加到下载列表
+            # 2. 目标格式是JPG：PDF文件使用pdf2image转换为JPG图片
+            # 3. 目标格式是其他：PDF文件跳过处理，直接添加到下载列表
+            
+            # 如果目标格式是JPG，PDF文件需要转换
+            normalized_target = 'jpg' if target_format.lower() == 'jpeg' else target_format.lower()
+            
+            # 更新总文件数（图片数量 + PDF文件数量，每个PDF按一页计算）
+            from pdf2image import convert_from_path
+            pdf_page_count = 0
+            if normalized_target == 'jpg':
+                for pdf_file in pdf_files:
+                    try:
+                        images = convert_from_path(pdf_file, dpi=1)
+                        pdf_page_count += len(images)
+                    except:
+                        pdf_page_count += 1
+            
+            with upload_progress_lock:
+                if task_id in upload_progress_data:
+                    upload_progress_data[task_id]['total'] = len(all_images) + pdf_page_count
+            
+            # 如果没有需要处理的文件
+            if len(all_images) == 0 and pdf_page_count == 0:
+                with upload_progress_lock:
+                    if task_id in upload_progress_data:
+                        upload_progress_data[task_id]['status'] = 'completed'
+                        upload_progress_data[task_id]['processed'] = 0
+                        upload_progress_data[task_id]['end_time'] = datetime.now().isoformat()
+                return
+            
+            # 根据处理类型处理文件
+            if process_type == 'convert':
+                # 转换图片格式
+                normalized_target = 'jpg' if target_format.lower() == 'jpeg' else target_format.lower()
+                
+                # 如果目标格式是PDF，将所有图片合并成一个PDF文件
+                if normalized_target == 'pdf':
+                    try:
+                        with upload_progress_lock:
+                            if task_id not in upload_progress_data:
+                                return
+                        
+                        # 只收集普通图片用于合并PDF（不包含PDF文件）
+                        all_images_for_pdf = list(all_images)
+                        
+                        # 如果没有普通图片，只有PDF文件，直接添加到下载
+                        if len(all_images_for_pdf) == 0:
+                            with upload_progress_lock:
+                                if task_id in upload_progress_data:
+                                    upload_progress_data[task_id]['status'] = 'completed'
+                                    upload_progress_data[task_id]['processed'] = len(pdf_files)
+                                    upload_progress_data[task_id]['end_time'] = datetime.now().isoformat()
+                            return
+                        
+                        # 更新进度（只统计普通图片）
+                        with upload_progress_lock:
+                            if task_id in upload_progress_data:
+                                upload_progress_data[task_id]['total'] = len(all_images_for_pdf)
+                        
+                        # 合并所有普通图片到一个PDF文件
+                        logger.info(f"开始合并 {len(all_images_for_pdf)} 张图片到一个PDF文件")
+                        
+                        images_for_pdf = []
+                        for img_path in all_images_for_pdf:
+                            try:
+                                with upload_progress_lock:
+                                    if task_id not in upload_progress_data:
+                                        return
+                                    upload_progress_data[task_id]['current_file'] = img_path
+                                
+                                # 打开图片并转换为RGB模式（PDF需要RGB）
+                                img = Image.open(img_path)
+                                if img.mode in ('RGBA', 'P'):
+                                    img = img.convert('RGB')
+                                images_for_pdf.append(img)
+                                
+                                with upload_progress_lock:
+                                    if task_id in upload_progress_data:
+                                        upload_progress_data[task_id]['processed'] += 1
+                            except Exception as e:
+                                logger.error(f"打开图片失败: {img_path}, 错误: {e}")
+                                with upload_progress_lock:
+                                    if task_id in upload_progress_data:
+                                        upload_progress_data[task_id]['processed'] += 1
+                                        upload_progress_data[task_id]['failed_files'].append(img_path)
+                        
+                        # 生成PDF文件名
+                        if len(all_images) > 0:
+                            # 使用第一张图片的文件名作为PDF文件名
+                            first_img_name = os.path.basename(all_images[0]).split('.')[0]
+                        else:
+                            first_img_name = 'combined'
+                        
+                        pdf_output_path = os.path.join(task_dir, f"{first_img_name}.pdf")
+                        
+                        # 保存PDF文件
+                        if images_for_pdf:
+                            images_for_pdf[0].save(
+                                pdf_output_path,
+                                save_all=True,
+                                append_images=images_for_pdf[1:],
+                                quality=quality
+                            )
+                            
+                            # 如果设置了密码，对PDF进行加密
+                            if pdf_password:
+                                try:
+                                    import pikepdf
+                                    logger.info(f"开始对PDF进行加密: {pdf_output_path}")
+                                    
+                                    # 打开刚创建的PDF
+                                    pdf = pikepdf.Pdf.open(pdf_output_path)
+                                    
+                                    # 创建加密的PDF（只设置密码，不设置权限）
+                                    output_pdf_path = pdf_output_path.replace('.pdf', '_encrypted.pdf')
+                                    
+                                    # 保存加密后的PDF
+                                    pdf.save(
+                                        output_pdf_path,
+                                        encryption=pikepdf.Encryption(
+                                            owner=pdf_password,
+                                            user=pdf_password
+                                        )
+                                    )
+                                    
+                                    # 删除原PDF，替换为加密版本
+                                    os.remove(pdf_output_path)
+                                    os.rename(output_pdf_path, pdf_output_path)
+                                    
+                                    logger.info(f"PDF加密完成: {pdf_output_path}")
+                                except Exception as e:
+                                    logger.error(f"PDF加密失败: {e}", exc_info=True)
+                            
+                            final_size = get_file_size(pdf_output_path)
+                            logger.info(f"PDF文件生成完成: {pdf_output_path}, 大小: {final_size} bytes")
+                            
+                            # 清理临时图片文件
+                            for temp_path in all_images_for_pdf:
+                                if temp_path in all_images:
+                                    continue  # 保留原始图片
+                                try:
+                                    if os.path.exists(temp_path):
+                                        os.remove(temp_path)
+                                except:
+                                    pass
+                            
+                            # 不要在这里设置completed，让流程继续走到函数末尾统一设置
+                            logger.info("图片合并PDF完成")
+                    except Exception as e:
+                        logger.error(f"合并图片到PDF失败: {e}", exc_info=True)
+                        with upload_progress_lock:
+                            if task_id in upload_progress_data:
+                                upload_progress_data[task_id]['status'] = 'error'
+                                upload_progress_data[task_id]['end_time'] = datetime.now().isoformat()
+                else:
+                    def convert_uploaded_image(img_path):
+                        nonlocal task_id
+                        global upload_progress_data
+                        
+                        try:
+                            with upload_progress_lock:
+                                if task_id not in upload_progress_data:
+                                    return
+                                upload_progress_data[task_id]['current_file'] = img_path
+                            
+                            original_size = get_file_size(img_path)
+                            
+                            # 使用ImageMagick转换图片格式
+                            success, new_path = convert_image_with_imagemagick(img_path, target_format, quality)
+                            
+                            if success:
+                                final_size = get_file_size(new_path) if os.path.exists(new_path) else original_size
+                                with upload_progress_lock:
+                                    if task_id in upload_progress_data:
+                                        upload_progress_data[task_id]['processed'] += 1
+                                        upload_progress_data[task_id]['original_size'] += original_size
+                                        upload_progress_data[task_id]['final_size'] += final_size
+                            else:
+                                with upload_progress_lock:
+                                    if task_id in upload_progress_data:
+                                        upload_progress_data[task_id]['processed'] += 1
+                                        upload_progress_data[task_id]['original_size'] += original_size
+                                        upload_progress_data[task_id]['final_size'] += original_size
+                                        upload_progress_data[task_id]['failed_files'].append(img_path)
+                        except Exception as e:
+                            logger.error(f"处理上传文件失败: {img_path}, 错误: {e}")
+                            with upload_progress_lock:
+                                if task_id in upload_progress_data:
+                                    upload_progress_data[task_id]['processed'] += 1
+                                    upload_progress_data[task_id]['failed_files'].append(img_path)
+                    
+                    def convert_uploaded_pdf(pdf_path):
+                        nonlocal task_id
+                        global upload_progress_data
+                        
+                        try:
+                            with upload_progress_lock:
+                                if task_id not in upload_progress_data:
+                                    return
+                                upload_progress_data[task_id]['current_file'] = pdf_path
+                            
+                            original_size = get_file_size(pdf_path)
+                            
+                            # 如果有PDF密码，尝试使用pikepdf解密PDF
+                            temp_pdf_path = pdf_path
+                            if pdf_password:
+                                try:
+                                    import pikepdf
+                                    logger.info(f"尝试解密PDF: {pdf_path}")
+                                    
+                                    # 尝试打开PDF并解密
+                                    encrypted_pdf = pikepdf.Pdf.open(pdf_path, password=pdf_password)
+                                    
+                                    # 保存解密后的临时PDF
+                                    temp_pdf_path = pdf_path.replace('.pdf', '_decrypted.pdf')
+                                    encrypted_pdf.save(temp_pdf_path)
+                                    encrypted_pdf.close()
+                                    
+                                    logger.info(f"PDF解密成功: {temp_pdf_path}")
+                                except pikepdf.PasswordError:
+                                    logger.error(f"PDF密码错误: {pdf_path}")
+                                    with upload_progress_lock:
+                                        if task_id in upload_progress_data:
+                                            upload_progress_data[task_id]['processed'] += 1
+                                            upload_progress_data[task_id]['failed_files'].append(pdf_path)
+                                    return
+                                except Exception as e:
+                                    logger.error(f"PDF解密失败: {pdf_path}, 错误: {e}")
+                                    # 如果解密失败，尝试直接转换（可能PDF没有密码）
+                                    pass
+                            
+                            # 使用pdf2image转换PDF为图片
+                            logger.info(f"开始使用pdf2image转换PDF: {temp_pdf_path}")
+                            images = convert_from_path(temp_pdf_path, dpi=300, fmt='jpeg', thread_count=1)
+                            logger.info(f"PDF转换完成，共 {len(images)} 页")
+                            
+                            dirname = os.path.dirname(pdf_path)
+                            basename = os.path.basename(pdf_path).split('.')[0]
+                            
+                            for i, img in enumerate(images):
+                                output_filename = os.path.join(dirname, f"{basename}-{i+1:03d}.jpg")
+                                img.save(output_filename, quality=quality)
+                                logger.info(f"保存图片: {output_filename}")
+                                
+                                with upload_progress_lock:
+                                    if task_id in upload_progress_data:
+                                        upload_progress_data[task_id]['processed'] += 1
+                                        upload_progress_data[task_id]['original_size'] += original_size // len(images)
+                                        upload_progress_data[task_id]['final_size'] += get_file_size(output_filename)
+                            
+                            # 清理临时解密文件
+                            if temp_pdf_path != pdf_path and os.path.exists(temp_pdf_path):
+                                try:
+                                    os.remove(temp_pdf_path)
+                                except:
+                                    pass
+                            
+                            logger.info(f"PDF转图片完成: {pdf_path}")
+                        except Exception as e:
+                            logger.error(f"处理上传PDF文件失败: {pdf_path}, 错误: {e}")
+                            with upload_progress_lock:
+                                if task_id in upload_progress_data:
+                                    upload_progress_data[task_id]['processed'] += 1
+                                    upload_progress_data[task_id]['failed_files'].append(pdf_path)
+                    
+                    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                        # 提交所有图片转换任务
+                        futures = [executor.submit(convert_uploaded_image, path) for path in all_images]
+                        # 如果目标格式是JPG，提交PDF转换任务
+                        if normalized_target == 'jpg':
+                            for pdf_path in pdf_files:
+                                futures.append(executor.submit(convert_uploaded_pdf, pdf_path))
+                        
+                        for future in concurrent.futures.as_completed(futures):
+                            try:
+                                future.result()
+                            except Exception as e:
+                                logger.error(f"处理图片时发生异常: {e}")
+            
+            else:
+                # 压缩图片
+                def compress_uploaded_image(img_path):
+                    nonlocal task_id
+                    global upload_progress_data
+                    
+                    try:
+                        with upload_progress_lock:
+                            if task_id not in upload_progress_data:
+                                return
+                            upload_progress_data[task_id]['current_file'] = img_path
+                        
+                        original_size = get_file_size(img_path)
+                        
+                        # 使用统一压缩函数
+                        if compress_image(img_path, quality):
+                            final_size = get_file_size(img_path)
+                            with upload_progress_lock:
+                                if task_id in upload_progress_data:
+                                    upload_progress_data[task_id]['processed'] += 1
+                                    upload_progress_data[task_id]['original_size'] += original_size
+                                    upload_progress_data[task_id]['final_size'] += final_size
+                        else:
+                            with upload_progress_lock:
+                                if task_id in upload_progress_data:
+                                    upload_progress_data[task_id]['processed'] += 1
+                                    upload_progress_data[task_id]['original_size'] += original_size
+                                    upload_progress_data[task_id]['final_size'] += original_size
+                                    upload_progress_data[task_id]['failed_files'].append(img_path)
+                    except Exception as e:
+                        logger.error(f"处理上传文件失败: {img_path}, 错误: {e}")
+                        with upload_progress_lock:
+                            if task_id in upload_progress_data:
+                                upload_progress_data[task_id]['processed'] += 1
+                                upload_progress_data[task_id]['failed_files'].append(img_path)
+                
+                with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = [executor.submit(compress_uploaded_image, path) for path in all_images]
+                    for future in concurrent.futures.as_completed(futures):
+                        try:
+                            future.result()
+                        except Exception as e:
+                            logger.error(f"处理图片时发生异常: {e}")
+            
+            # 处理完成，生成下载文件
+            logger.info("上传处理完成，生成下载文件")
+            
+            # 收集处理后的文件
+            processed_files = []
+            
+            # 如果是转换模式，只收集转换后的文件
+            if process_type == 'convert':
+                normalized_target = 'jpg' if target_format.lower() == 'jpeg' else target_format.lower()
+                
+                # 如果目标格式是PDF，查找生成的PDF文件
+                if normalized_target == 'pdf':
+                    for f in all_images:
+                        basename = os.path.basename(f).split('.')[0]
+                        pdf_path = os.path.join(task_dir, f"{basename}.pdf")
+                        if os.path.exists(pdf_path):
+                            processed_files.append(pdf_path)
+                            logger.info(f"添加合并后的PDF文件到下载: {pdf_path}")
+                            break  # 只添加一个PDF文件
+                else:
+                    for f in all_images:
+                        ext = os.path.splitext(f)[1].lower()[1:]
+                        if ext != 'pdf':
+                            normalized_ext = 'jpg' if ext == 'jpeg' else ext
+                            basename = os.path.basename(f).split('.')[0]
+                            new_path = os.path.join(task_dir, f"{basename}.{normalized_target}")
+                            
+                            if normalized_ext != normalized_target:
+                                # 格式不同，需要转换
+                                if os.path.exists(new_path):
+                                    # 转换成功
+                                    processed_files.append(new_path)
+                                    # 从failed_files中移除原图（如果存在）
+                                    with upload_progress_lock:
+                                        if task_id in upload_progress_data:
+                                            if f in upload_progress_data[task_id]['failed_files']:
+                                                upload_progress_data[task_id]['failed_files'].remove(f)
+                                    # 删除原图文件
+                                    try:
+                                        if os.path.exists(f):
+                                            os.remove(f)
+                                            logger.info(f"已删除原图: {f}")
+                                    except Exception as e:
+                                        logger.warning(f"删除原图失败: {f}, 错误: {e}")
+                                elif os.path.exists(f):
+                                    # 转换失败或格式相同，原图存在
+                                    processed_files.append(f)
+                                    logger.info(f"添加转换失败的原图到下载: {f}")
+                            else:
+                                # 格式相同，无需转换
+                                if os.path.exists(f):
+                                    processed_files.append(f)
+                                    logger.info(f"添加格式相同的文件: {f}")
+                
+                # 收集PDF转换后的图片（每页一张）
+                if normalized_target == 'jpg':
+                    for pdf_file in pdf_files:
+                        basename = os.path.basename(pdf_file).split('.')[0]
+                        # 查找PDF转换后的所有页面图片
+                        page_num = 1
+                        while True:
+                            page_path = os.path.join(task_dir, f"{basename}-{page_num:03d}.jpg")
+                            if os.path.exists(page_path):
+                                processed_files.append(page_path)
+                                logger.info(f"添加PDF转换后的图片到下载: {page_path}")
+                                page_num += 1
+                            else:
+                                break
+            
+            # 如果是压缩模式，收集压缩后的文件
+            else:
+                for f in all_images:
+                    if os.path.exists(f):
+                        processed_files.append(f)
+            
+            # 添加PDF文件到下载列表
+            # 规则：目标格式是PDF时添加到下载；目标格式是JPG时已转换，不添加原PDF
+            if target_format.lower() != 'jpg' and target_format.lower() != 'jpeg':
+                for pdf_file in pdf_files:
+                    if os.path.exists(pdf_file):
+                        processed_files.append(pdf_file)
+                        logger.info(f"添加PDF文件到下载: {pdf_file}")
+            
+            # 添加失败的文件到下载列表
+            with upload_progress_lock:
+                if task_id in upload_progress_data:
+                    failed_files = upload_progress_data[task_id].get('failed_files', [])
+                    for failed_file in failed_files:
+                        if os.path.exists(failed_file) and failed_file not in processed_files:
+                            processed_files.append(failed_file)
+                            logger.info(f"添加失败文件到下载: {failed_file}")
+            
+            # 如果有处理后的文件，生成下载
+            if processed_files:
+                # 如果只有一个文件，直接提供下载
+                if len(processed_files) == 1:
+                    download_path = processed_files[0]
+                else:
+                    # 多个文件打包成zip
+                    import zipfile
+                    zip_path = os.path.join(task_dir, 'processed_files.zip')
+                    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                        for f in processed_files:
+                            if os.path.exists(f):
+                                zipf.write(f, os.path.basename(f))
+                    download_path = zip_path
+                
+                # 生成下载URL
+                download_url = f"/download_upload_result/{task_id}?filename={os.path.basename(download_path)}"
+                
+                # 获取任务目录路径
+                local_task_dir = None
+                with upload_progress_lock:
+                    if task_id in upload_progress_data:
+                        upload_progress_data[task_id]['status'] = 'completed'
+                        upload_progress_data[task_id]['end_time'] = datetime.now().isoformat()
+                        upload_progress_data[task_id]['download_url'] = download_url
+                        upload_progress_data[task_id]['current_file'] = ''
+                        local_task_dir = upload_progress_data[task_id].get('task_dir')
+                
+                # 保存任务进度数据到文件
+                if local_task_dir:
+                    save_task_progress_data(task_id, local_task_dir)
+                
+                logger.info(f"下载URL生成完成: {download_url}")
+            else:
+                with upload_progress_lock:
+                    if task_id in upload_progress_data:
+                        upload_progress_data[task_id]['status'] = 'completed'
+                        upload_progress_data[task_id]['end_time'] = datetime.now().isoformat()
+                        upload_progress_data[task_id]['current_file'] = ''
+                        local_task_dir = upload_progress_data[task_id].get('task_dir')
+                
+                # 保存任务进度数据到文件
+                if local_task_dir:
+                    save_task_progress_data(task_id, local_task_dir)
+        
+        except Exception as e:
+            logger.error(f"处理上传文件时出错: {e}", exc_info=True)
+            with upload_progress_lock:
+                if task_id in upload_progress_data:
+                    upload_progress_data[task_id]['status'] = 'error'
+                    upload_progress_data[task_id]['end_time'] = datetime.now().isoformat()
+                    local_task_dir = upload_progress_data[task_id].get('task_dir')
+            
+            # 保存任务进度数据到文件
+            if local_task_dir:
+                save_task_progress_data(task_id, local_task_dir)
+    
+    # 启动后台处理线程
+    thread = threading.Thread(target=process_uploaded_files)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'task_id': task_id})
+
+def save_task_progress_data(task_id, task_dir):
+    """
+    保存任务进度数据到文件
+    将upload_progress_data中的任务信息保存为JSON文件，方便后续查看
+    """
+    import json
+    
+    with upload_progress_lock:
+        if task_id not in upload_progress_data:
+            return
+        
+        task_data = upload_progress_data[task_id].copy()
+    
+    # 移除不需要保存的字段
+    task_data.pop('task_dir', None)
+    
+    # 保存为JSON文件
+    progress_file = os.path.join(task_dir, 'task_progress.json')
+    try:
+        with open(progress_file, 'w', encoding='utf-8') as f:
+            json.dump(task_data, f, ensure_ascii=False, indent=2)
+        logger.debug(f"已保存任务进度数据: {progress_file}")
+    except Exception as e:
+        logger.error(f"保存任务进度数据失败: {e}")
+
+def cleanup_expired_tasks():
+    """
+    清理过期的上传任务
+    清理超过12小时已完成或出错的临时文件
+    使用end_time判断过期时间
+    """
+    from datetime import timedelta
+    
+    expiration_time = timedelta(hours=12)
+    current_time = datetime.now()
+    
+    expired_task_ids = []
+    
+    with upload_progress_lock:
+        for task_id, task_data in upload_progress_data.items():
+            status = task_data.get('status', 'running')
+            # 只清理已完成或出错的任务
+            if status not in ('completed', 'error'):
+                continue
+            
+            end_time_str = task_data.get('end_time')
+            if not end_time_str:
+                continue
+            
+            try:
+                end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+                elapsed = current_time - end_time
+                if elapsed > expiration_time:
+                    expired_task_ids.append(task_id)
+            except (ValueError, TypeError):
+                continue
+    
+    for task_id in expired_task_ids:
+        try:
+            with upload_progress_lock:
+                if task_id not in upload_progress_data:
+                    continue
+                task_data = upload_progress_data[task_id]
+                task_dir = task_data.get('task_dir')
+            
+            if task_dir and os.path.isdir(task_dir):
+                shutil.rmtree(task_dir, ignore_errors=True)
+                logger.info(f"已清理过期任务临时目录: {task_id}")
+            
+            with upload_progress_lock:
+                if task_id in upload_progress_data:
+                    del upload_progress_data[task_id]
+        except Exception as e:
+            logger.error(f"清理过期任务失败: {task_id}, 错误: {e}")
+
+def start_cleanup_scheduler():
+    """
+    启动定时清理任务
+    每小时检查并清理过期的临时文件
+    """
+    def run_cleanup():
+        """执行清理任务"""
+        try:
+            cleanup_expired_tasks()
+            logger.debug("定时清理过期任务完成")
+        except Exception as e:
+            logger.error(f"定时清理过期任务失败: {e}")
+        finally:
+            # 安排下一次执行（只在清理完成后安排）
+            next_timer = threading.Timer(3600, run_cleanup)
+            next_timer.daemon = True
+            next_timer.start()
+    
+    # 立即执行一次清理
+    run_cleanup()
+    logger.info("已启动定时清理任务（每小时执行一次）")
+
+@app.route('/get_upload_progress/<task_id>')
+def get_upload_progress(task_id):
+    """
+    获取上传处理进度
+    请求方法: GET
+    返回: JSON格式的进度信息
+    """
+    with upload_progress_lock:
+        if task_id not in upload_progress_data:
+            return jsonify({'error': '任务不存在', 'status': 'not_found'}), 404
+        
+        task_data = upload_progress_data[task_id].copy()
+        # 不要返回任务目录路径
+        task_data.pop('task_dir', None)
+        return jsonify(task_data)
+
+@app.route('/download_upload_result/<task_id>')
+def download_upload_result(task_id):
+    """
+    下载上传处理结果
+    请求方法: GET
+    返回: 文件内容
+    """
+    # 清理过期任务
+    cleanup_expired_tasks()
+    
+    filename = request.args.get('filename', '')
+    
+    with upload_progress_lock:
+        if task_id not in upload_progress_data:
+            return '任务不存在', 404
+        
+        task_data = upload_progress_data[task_id]
+        task_dir = task_data.get('task_dir')
+    
+    if not task_dir or not os.path.isdir(task_dir):
+        return '任务目录不存在', 404
+    
+    file_path = os.path.join(task_dir, filename)
+    if not os.path.isfile(file_path):
+        return '文件不存在', 404
+    
+    try:
+        return send_file(file_path, as_attachment=True)
+    except Exception as e:
+        logger.error(f"下载文件失败: {type(e).__name__}: {str(e)}")
+        return f'Download failed: {str(e)}', 500
+
+@app.route('/cleanup_upload/<task_id>', methods=['POST'])
+def cleanup_upload(task_id):
+    """
+    清理上传任务的临时文件
+    请求方法: POST
+    返回: JSON格式的清理结果
+    """
+    with upload_progress_lock:
+        if task_id not in upload_progress_data:
+            return jsonify({'error': '任务不存在'}), 404
+        
+        task_data = upload_progress_data[task_id]
+        task_dir = task_data.get('task_dir')
+    
+    # 删除任务目录
+    if task_dir and os.path.isdir(task_dir):
+        try:
+            # 使用os.scandir递归删除所有文件和目录
+            def delete_recursive(path):
+                if os.path.isdir(path):
+                    with os.scandir(path) as entries:
+                        for entry in entries:
+                            if entry.is_dir():
+                                delete_recursive(entry.path)
+                            else:
+                                os.remove(entry.path)
+                    os.rmdir(path)
+                else:
+                    os.remove(path)
+            
+            delete_recursive(task_dir)
+            logger.info(f"已清理上传任务临时目录: {task_dir}")
+        except Exception as e:
+            logger.error(f"清理上传任务临时目录失败: {e}")
+            # 尝试使用shutil强制删除
+            try:
+                shutil.rmtree(task_dir, ignore_errors=True)
+            except:
+                pass
+    
+    # 删除进度数据
+    with upload_progress_lock:
+        if task_id in upload_progress_data:
+            del upload_progress_data[task_id]
+    
+    return jsonify({'status': 'success'})
+
+def cleanup_temp_directory():
+    """
+    启动时清理临时目录
+    删除temp目录及其所有内容，确保没有残留的任务文件
+    """
+    temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'temp', 'uploads')
+    if os.path.isdir(temp_dir):
+        try:
+            shutil.rmtree(temp_dir)
+            logger.info(f"启动时已清理临时目录: {temp_dir}")
+        except Exception as e:
+            logger.error(f"启动时清理临时目录失败: {e}")
+
 if __name__ == '__main__':
+    # 启动时清理临时目录
+    cleanup_temp_directory()
+    
+    # 启动定时清理任务
+    start_cleanup_scheduler()
+    
     app.run(debug=DEBUG, host='0.0.0.0', port=5000)

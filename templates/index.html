@@ -80,6 +80,7 @@
                             <button id="clean-empty-folders-btn" class="btn btn-danger">清理空文件夹</button>
                             <button id="compress-btn" class="btn btn-primary" disabled>图片压缩</button>
                             <button id="convert-btn" class="btn btn-primary" disabled>图片转换</button>
+                            <button id="upload-btn" class="btn btn-primary">上传图片处理</button>
                         </div>
                         <div id="file-list" class="file-list">
                             <!-- 文件列表将通过JS动态生成 -->
@@ -118,9 +119,8 @@
                             <div class="card">
                                 <div class="card-body">
                                     <div class="form-group">
-                                        <label for="compression-quality">压缩率（%）</label>
+                                        <label for="compression-quality">压缩率：<span id="quality-value">80</span>%</label>
                                         <input type="range" class="form-control-range" id="compression-quality" min="1" max="100" value="80">
-                                        <span id="quality-value">80</span>%
                                     </div>
                                     <div class="form-group">
                                         <label for="min-file-size">最小文件大小（KB）</label>
@@ -128,9 +128,8 @@
                                         <small class="form-text text-muted">小于此大小的文件将被忽略，支持公式输入（如：1024*4）</small>
                                     </div>
                                     <div class="form-group">
-                                        <label for="thread-count">使用线程数</label>
+                                        <label for="thread-count">使用线程数：<span id="thread-value">4</span></label>
                                         <input type="range" class="form-control-range" id="thread-count" min="1" max="8" value="4">
-                                        <span id="thread-value">4</span>
                                     </div>
                                     <button id="start-compress-btn" class="btn btn-primary">开始压缩</button>
                                 </div>
@@ -166,14 +165,12 @@
                                     <label class="form-check-label" for="skip-pdf-checkbox">跳过PDF文件</label>
                                 </div>
                                 <div class="form-group">
-                                    <label for="convert-quality">压缩率（%）</label>
+                                    <label for="convert-quality">压缩率：<span id="convert-quality-value">99</span>%</label>
                                     <input type="range" class="form-control-range" id="convert-quality" min="1" max="100" value="99">
-                                    <span id="convert-quality-value">99</span>%
                                 </div>
                                 <div class="form-group">
-                                    <label for="convert-thread-count">使用线程数</label>
+                                    <label for="convert-thread-count">使用线程数：<span id="convert-thread-value">4</span></label>
                                     <input type="range" class="form-control-range" id="convert-thread-count" min="1" max="8" value="4">
-                                    <span id="convert-thread-value">4</span>
                                 </div>
                                 <button id="start-convert-btn" class="btn btn-primary">开始转换</button>
                             </div>
@@ -284,11 +281,11 @@
                     <div id="fix-result-summary" class="mb-3"></div>
                     <div id="fix-skipped-files-section" class="mb-4">
                         <h6>跳过的文件（共<span id="skipped-count">0</span>个）</h6>
-                        <div id="fix-skipped-files-list" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding-left: 10px; padding-right: 10px; border-radius: 4px;"></div>
+                        <div id="fix-skipped-files-list" class="pre-scrollable"></div>
                     </div>
                     <div id="fix-failed-files-section" class="mb-4">
                         <h6>失败的文件（共<span id="failed-count">0</span>个）</h6>
-                        <div id="fix-failed-files-list" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding-left: 10px; padding-right: 10px; border-radius: 4px;"></div>
+                        <div id="fix-failed-files-list" class="pre-scrollable"></div>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -351,6 +348,136 @@
                 </div>
                 <div class="modal-body">
                     <p id="toast-modal-message"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 文件上传选择模态框 -->
+    <div class="modal fade" id="upload-select-modal" tabindex="-1" role="dialog" aria-labelledby="upload-select-modal-title" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="upload-select-modal-title">选择要上传的文件</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="file-input">选择图片或PDF文件（支持多选）</label>
+                        <input type="file" class="form-control-file" id="file-input" multiple accept=".jpg,.jpeg,.png,.webp,.avif,.heic,.bmp,.gif,.tiff,.pdf">
+                    </div>
+                    <div id="selected-upload-files" class="selected-upload-files mt-3">
+                        <h6>已选择文件（<span id="selected-count">0</span>个）</h6>
+                        <ul id="upload-files-list" class="list-group pre-scrollable" style="max-height: 200px;"></ul>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="confirm-upload-btn" disabled>确定</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传图片处理配置模态框 -->
+    <div class="modal fade" id="upload-process-modal" tabindex="-1" role="dialog" aria-labelledby="upload-process-modal-title" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="upload-process-modal-title">图片处理配置</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <div class="upload-files-section mb-3">
+                        <h6>已选择的文件（<span id="process-file-count">0</span>个）</h6>
+                        <div id="process-files-list" class="pre-scrollable" style="max-height: 200px; background-color: #f8f9fa; padding: 10px; border-radius: 4px;"></div>
+                    </div>
+                    <div class="upload-settings-section">
+                        <div class="card">
+                            <div class="card-body">
+                                <div class="form-group">
+                                    <label>处理方式</label>
+                                    <div>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="process-type" id="process-compress" value="compress" checked>
+                                            <label class="form-check-label" for="process-compress">图片压缩（PDF不支持压缩）</label>
+                                        </div>
+                                        <div class="form-check form-check-inline">
+                                            <input class="form-check-input" type="radio" name="process-type" id="process-convert" value="convert">
+                                            <label class="form-check-label" for="process-convert">图片转换</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="convert-options" style="display: none;">
+                                    <div class="form-group">
+                                        <label for="upload-target-format">目标格式</label>
+                                        <select class="form-control" id="upload-target-format">
+                                        </select>
+                                    </div>
+                                    <div class="form-group form-check" id="upload-skip-pdf-container">
+                                        <input type="checkbox" class="form-check-input" id="upload-skip-pdf" checked>
+                                        <label class="form-check-label" for="upload-skip-pdf">跳过PDF文件</label>
+                                    </div>
+                                </div>
+                                <div class="form-group" id="upload-compression-quality-container">
+                                    <label for="upload-compression-quality">压缩率：<span id="upload-quality-value">80</span>%</label>
+                                    <input type="range" class="form-control-range" id="upload-compression-quality" min="1" max="100" value="80" data-compress="80" data-convert="99">
+                                </div>
+                                <div class="form-group" id="upload-pdf-password-container" style="display: none;">
+                                    <label for="upload-pdf-password">PDF密码（留空不加密）</label>
+                                    <input type="text" class="form-control" id="upload-pdf-password" placeholder="输入PDF打开密码">
+                                </div>
+                                <div class="form-group">
+                                    <label for="upload-thread-count">使用线程数：<span id="upload-thread-value">4</span></label>
+                                    <input type="range" class="form-control-range" id="upload-thread-count" min="1" max="8" value="4">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="start-upload-process-btn">开始处理</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 上传和处理进度模态框 -->
+    <div class="modal fade" id="upload-progress-modal" tabindex="-1" role="dialog" aria-labelledby="upload-progress-modal-title" aria-hidden="true" data-backdrop="static" data-keyboard="false">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="upload-progress-modal-title">上传和处理进度</h5>
+                </div>
+                <div class="modal-body">
+                    <div class="upload-progress-section mb-3">
+                        <h6>上传进度</h6>
+                        <div class="progress">
+                            <div id="upload-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                        <p class="mt-1">已上传: <span id="uploaded-count">0</span>/<span id="upload-total-count">0</span> 个文件</p>
+                    </div>
+                    <div class="process-progress-section">
+                        <h6>处理进度</h6>
+                        <div class="progress">
+                            <div id="process-progress-bar" class="progress-bar bg-success progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+                        </div>
+                        <p class="mt-1">已处理: <span id="processed-count">0</span>/<span id="process-total-count">0</span> 个文件</p>
+                        <p id="upload-current-file" style="display: none;">当前处理: <span id="upload-current-file-path" class="current-file-path"></span></p>
+                    </div>
+                    <div id="upload-failed-files-section" style="display: none;" class="mt-3">
+                        <h6>失败的文件（共<span id="upload-failed-count">0</span>个）</h6>
+                        <div id="upload-failed-files" class="pre-scrollable" style="max-height: 100px; background-color: #f8f9fa; padding: 10px; border-radius: 4px;"></div>
+                    </div>
+                </div>
+                <div class="modal-footer" id="upload-progress-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal" id="close-upload-progress" style="display: none;">关闭</button>
+                    <button type="button" class="btn btn-primary" id="download-result-btn" style="display: none;">下载</button>
                 </div>
             </div>
         </div>

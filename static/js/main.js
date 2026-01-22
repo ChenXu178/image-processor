@@ -987,6 +987,463 @@ $(document).ready(function() {
             }
         });
     });
+
+    // 上传相关变量
+    let selectedUploadFiles = [];
+    let currentUploadTaskId = null;
+    let uploadProgressInterval = null;
+    let processProgressInterval = null;
+    
+    // 上传按钮点击事件
+    $('#upload-btn').on('click', function() {
+        // 重置上传文件列表
+        selectedUploadFiles = [];
+        $('#file-input').val('');
+        $('#upload-files-list').html('');
+        $('#selected-count').text('0');
+        $('#confirm-upload-btn').prop('disabled', true);
+        
+        // 显示文件选择模态框
+        $('#upload-select-modal').modal('show');
+    });
+    
+    // 文件输入框变化事件
+    $('#file-input').on('change', function() {
+        const files = this.files;
+        
+        // 清空之前的选择
+        selectedUploadFiles = [];
+        $('#upload-files-list').html('');
+        
+        // 获取支持的文件扩展名
+        const supportedExtensions = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'heic', 'bmp', 'gif', 'tiff', 'pdf'];
+        
+        let validFiles = 0;
+        
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const fileName = file.name.toLowerCase();
+            const ext = fileName.split('.').pop();
+            
+            // 检查文件扩展名是否支持
+            if (supportedExtensions.includes(ext)) {
+                selectedUploadFiles.push(file);
+                
+                const li = $('<li>').addClass('list-group-item');
+                const fileNameSpan = $('<span>').addClass('upload-file-name').text(file.name);
+                const fileSizeSpan = $('<span>').addClass('upload-file-size').text(formatFileSize(file.size));
+                
+                li.append(fileNameSpan);
+                li.append(fileSizeSpan);
+                $('#upload-files-list').append(li);
+                
+                validFiles++;
+            }
+        }
+        
+        $('#selected-count').text(selectedUploadFiles.length);
+        $('#confirm-upload-btn').prop('disabled', selectedUploadFiles.length === 0);
+        
+        if (validFiles === 0 && files.length > 0) {
+            showToast('未选择支持的文件格式，请选择图片或PDF文件');
+        }
+    });
+    
+    // 确认上传按钮点击事件
+    $('#confirm-upload-btn').on('click', function() {
+        if (selectedUploadFiles.length === 0) {
+            showToast('请先选择文件');
+            return;
+        }
+        
+        // 关闭文件选择模态框
+        $('#upload-select-modal').modal('hide');
+        
+        // 显示处理配置模态框
+        $('#upload-process-modal').modal('show');
+        
+        // 更新处理配置模态框中的文件列表
+        $('#process-file-count').text(selectedUploadFiles.length);
+        let processFilesHtml = '';
+        let hasPdfFiles = false;
+        for (let i = 0; i < selectedUploadFiles.length; i++) {
+            const file = selectedUploadFiles[i];
+            processFilesHtml += `<div class="progress-file-item">${file.name} (${formatFileSize(file.size)})</div>`;
+            // 检查是否是PDF文件
+            if (file.name.toLowerCase().endsWith('.pdf')) {
+                hasPdfFiles = true;
+            }
+        }
+        $('#process-files-list').html(processFilesHtml);
+        
+        // 保存是否有PDF文件的标志到全局
+        window.uploadHasPdfFiles = hasPdfFiles;
+        
+        // 如果包含PDF文件，限制目标格式只能选择jpg和pdf
+        if (hasPdfFiles) {
+            // 限制目标格式下拉框
+            const targetFormatSelect = $('#upload-target-format');
+            targetFormatSelect.find('option').each(function() {
+                const value = $(this).val().toLowerCase();
+                if (value === 'jpg' || value === 'pdf') {
+                    $(this).show();
+                } else {
+                    $(this).hide();
+                }
+            });
+            // 如果当前选择的格式不是jpg或pdf，切换到jpg
+            const currentFormat = targetFormatSelect.val();
+            if (currentFormat.toLowerCase() !== 'jpg' && currentFormat.toLowerCase() !== 'pdf') {
+                targetFormatSelect.val('jpg');
+            }
+            // 更新跳过PDF复选框可见性
+            updateSkipPdfCheckboxVisibility();
+        } else {
+            // 没有PDF文件，恢复所有格式选项
+            const targetFormatSelect = $('#upload-target-format');
+            targetFormatSelect.find('option').each(function() {
+                $(this).show();
+            });
+        }
+        
+        // 根据当前选中的处理方式设置压缩率
+        const currentProcessType = $('input[name="process-type"]:checked').val();
+        const qualityInput = $('#upload-compression-quality');
+        if (currentProcessType === 'convert') {
+            $('#convert-options').show();
+            qualityInput.val(qualityInput.data('convert'));
+            $('#upload-quality-value').text(qualityInput.data('convert'));
+            // 更新跳过PDF复选框可见性
+            updateSkipPdfCheckboxVisibility();
+        } else {
+            $('#convert-options').hide();
+            qualityInput.val(qualityInput.data('compress'));
+            $('#upload-quality-value').text(qualityInput.data('compress'));
+        }
+    });
+    
+    // 处理方式单选框变化事件
+    $('input[name="process-type"]').on('change', function() {
+        if ($(this).val() === 'convert') {
+            $('#convert-options').show();
+            // 切换到转换模式时，使用99%压缩率
+            const qualityInput = $('#upload-compression-quality');
+            qualityInput.val(qualityInput.data('convert'));
+            $('#upload-quality-value').text(qualityInput.data('convert'));
+        } else {
+            $('#convert-options').hide();
+            // 切换到压缩模式时，使用80%压缩率
+            const qualityInput = $('#upload-compression-quality');
+            qualityInput.val(qualityInput.data('compress'));
+            $('#upload-quality-value').text(qualityInput.data('compress'));
+        }
+        // 更新PDF密码框和跳过PDF复选框的可见性
+        updateSkipPdfCheckboxVisibility();
+    });
+    
+    // 目标格式下拉框变化事件
+    $('#upload-target-format').on('change', function() {
+        updateSkipPdfCheckboxVisibility();
+    });
+    
+    // 更新跳过PDF复选框可见性
+    function updateSkipPdfCheckboxVisibility() {
+        const targetFormat = $('#upload-target-format').val();
+        const hasPdfFiles = window.uploadHasPdfFiles || false;
+        const processType = $('input[name="process-type"]:checked').val();
+        const skipPdf = $('#upload-skip-pdf').is(':checked');
+        
+        // 判断是否需要显示PDF密码框
+        // 条件1：目标格式是PDF（用于加密输出PDF）
+        // 条件2：包含PDF文件 且 不跳过PDF 且 目标格式是JPG 且 处理方式是"图片转换"
+        const showPdfPassword = (targetFormat.toLowerCase() === 'pdf') || 
+                                (hasPdfFiles && !skipPdf && targetFormat.toLowerCase() === 'jpg' && processType === 'convert');
+        
+        if (targetFormat.toLowerCase() === 'pdf') {
+            $('#upload-skip-pdf-container').hide();
+            $('#upload-compression-quality-container').hide();
+        } else {
+            $('#upload-skip-pdf-container').show();
+            $('#upload-compression-quality-container').show();
+        }
+        
+        // 显示或隐藏PDF密码输入框
+        if (showPdfPassword) {
+            $('#upload-pdf-password-container').show();
+        } else {
+            $('#upload-pdf-password-container').hide();
+            $('#upload-pdf-password').val('');
+        }
+    }
+    
+    // 上传配置滑块事件
+    $('#upload-compression-quality').on('input', function() {
+        $('#upload-quality-value').text($(this).val());
+    });
+    
+    $('#upload-thread-count').on('input', function() {
+        $('#upload-thread-value').text($(this).val());
+    });
+    
+    // 跳过PDF复选框变化事件
+    $('#upload-skip-pdf').on('change', function() {
+        updateSkipPdfCheckboxVisibility();
+    });
+    
+    // 开始上传处理按钮点击事件
+    $('#start-upload-process-btn').on('click', function() {
+        if (selectedUploadFiles.length === 0) {
+            showToast('请先选择文件');
+            return;
+        }
+        
+        // 获取配置
+        const processType = $('input[name="process-type"]:checked').val();
+        const quality = parseInt($('#upload-compression-quality').val());
+        const maxWorkers = parseInt($('#upload-thread-count').val());
+        const targetFormat = $('#upload-target-format').val();
+        const skipPdf = $('#upload-skip-pdf').is(':checked');
+        const pdfPassword = $('#upload-pdf-password').val() || '';
+        
+        // 关闭处理配置模态框
+        $('#upload-process-modal').modal('hide');
+        
+        // 重置进度显示
+        $('#upload-progress-bar').css('width', '0%').attr('aria-valuenow', '0');
+        $('#uploaded-count').text('0');
+        $('#upload-total-count').text(selectedUploadFiles.length);
+        $('#process-progress-bar').css('width', '0%').attr('aria-valuenow', '0');
+        $('#processed-count').text('0');
+        $('#process-total-count').text('0');
+        $('#upload-current-file-path').text('');
+        $('#upload-failed-files-section').hide();
+        $('#download-result-btn').hide();
+        $('#close-upload-progress').hide();
+        
+        // 设置处理未完成标志
+        uploadProcessingComplete = false;
+        
+        // 显示进度模态框
+        $('#upload-progress-modal').modal('show');
+        
+        // 上传文件
+        uploadFiles(processType, quality, maxWorkers, targetFormat, skipPdf, pdfPassword);
+    });
+    
+    // 上传文件函数
+    function uploadFiles(processType, quality, maxWorkers, targetFormat, skipPdf, pdfPassword) {
+        const formData = new FormData();
+        
+        // 添加文件
+        for (let i = 0; i < selectedUploadFiles.length; i++) {
+            formData.append('files', selectedUploadFiles[i]);
+        }
+        
+        // 添加配置参数
+        formData.append('process_type', processType);
+        formData.append('quality', quality);
+        formData.append('max_workers', maxWorkers);
+        formData.append('target_format', targetFormat);
+        formData.append('skip_pdf', skipPdf);
+        formData.append('pdf_password', pdfPassword);
+        
+        // 使用XMLHttpRequest跟踪上传进度
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/upload_images', true);
+        
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                const percentComplete = Math.round((e.loaded / e.total) * 100);
+                $('#upload-progress-bar').css('width', percentComplete + '%').attr('aria-valuenow', percentComplete);
+                
+                // 根据进度百分比估算已上传文件个数
+                const totalFiles = selectedUploadFiles.length;
+                const uploadedCount = Math.round(totalFiles * percentComplete / 100);
+                $('#uploaded-count').text(uploadedCount);
+            }
+        };
+        
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                const response = JSON.parse(xhr.responseText);
+                
+                if (response.error) {
+                    showToast('上传失败: ' + response.error);
+                    $('#upload-progress-modal').modal('hide');
+                    return;
+                }
+                
+                currentUploadTaskId = response.task_id;
+                
+                // 更新上传完成数量
+                $('#uploaded-count').text(selectedUploadFiles.length);
+                $('#upload-total-count').text(selectedUploadFiles.length);
+                $('#upload-progress-bar').css('width', '100%').attr('aria-valuenow', 100);
+                
+                // 开始轮询处理进度
+                $('#process-total-count').text(selectedUploadFiles.length);
+                $('#upload-current-file').show();
+                
+                // 开始轮询处理进度
+                startProcessProgressPolling();
+            } else {
+                let errorMessage = '上传失败';
+                try {
+                    const response = JSON.parse(xhr.responseText);
+                    errorMessage = response.error || errorMessage;
+                } catch (e) {
+                    errorMessage = xhr.statusText || errorMessage;
+                }
+                showToast(errorMessage);
+                $('#upload-progress-modal').modal('hide');
+            }
+        };
+        
+        xhr.onerror = function() {
+            showToast('网络错误，上传失败');
+            $('#upload-progress-modal').modal('hide');
+        };
+        
+        xhr.send(formData);
+    }
+    
+    // 开始轮询处理进度
+    function startProcessProgressPolling() {
+        if (!currentUploadTaskId) return;
+        
+        processProgressInterval = setInterval(function() {
+            $.ajax({
+                url: '/get_upload_progress/' + currentUploadTaskId,
+                type: 'GET',
+                success: function(response) {
+                    if (response.error) {
+                        log('error', '获取处理进度失败: ' + response.error);
+                        return;
+                    }
+                    log('info', 'response.status: ' + response.status);
+                    log('info', 'response.download_url: ' + response.download_url);
+                    log('info', 'response.current_file: ' + response.current_file);
+                    // 更新处理进度
+                    const processed = response.processed || 0;
+                    const total = response.total || selectedUploadFiles.length;
+                    const processPercent = total > 0 ? Math.round((processed / total) * 100) : 0;
+                    
+                    $('#process-progress-bar').css('width', processPercent + '%').attr('aria-valuenow', processPercent);
+                    $('#processed-count').text(processed);
+                    $('#process-total-count').text(total);
+                    
+                    // 更新当前处理文件
+                    $('#upload-current-file').show();
+                    let currentFile = response.current_file || '';
+                    if (!currentFile) {
+                        currentFile = '处理中...';
+                    }
+                    const truncatedPath = truncatePath(currentFile, 60);
+                    $('#upload-current-file-path').text(truncatedPath);
+                    
+                    // 处理失败文件列表
+                    const failedFiles = response.failed_files || [];
+                    if (failedFiles.length > 0) {
+                        $('#upload-failed-files-section').show();
+                        $('#upload-failed-count').text(failedFiles.length);
+                        let failedHtml = '';
+                        for (const file of failedFiles) {
+                            failedHtml += `<div class="progress-file-item">${file}</div>`;
+                        }
+                        $('#upload-failed-files').html(failedHtml);
+                    } else {
+                        $('#upload-failed-files-section').hide();
+                    }
+                    
+                    // 检查是否完成
+                    if (response.status === 'completed') {
+                        clearInterval(processProgressInterval);
+                        processProgressInterval = null;
+                        
+                        // 显示下载按钮
+                        $('#upload-progress-bar').css('width', '100%').attr('aria-valuenow', 100);
+                        $('#process-progress-bar').css('width', '100%').attr('aria-valuenow', 100);
+                        $('#upload-current-file').hide();
+                        
+                        if (response.download_url) {
+                            $('#download-result-btn').data('download-url', response.download_url);
+                            $('#download-result-btn').data('task-id', currentUploadTaskId);
+                            $('#download-result-btn').show();
+                        }
+                        
+                        $('#close-upload-progress').show();
+                        
+                        // 设置处理完成标志，允许关闭模态框
+                        uploadProcessingComplete = true;
+                        
+                        log('info', '上传处理完成');
+                    } else if (response.status === 'error') {
+                        clearInterval(processProgressInterval);
+                        processProgressInterval = null;
+                        
+                        // 显示下载按钮（如果有生成文件）
+                        if (response.download_url) {
+                            $('#upload-progress-bar').css('width', '100%').attr('aria-valuenow', 100);
+                            $('#process-progress-bar').css('width', '100%').attr('aria-valuenow', 100);
+                            $('#upload-current-file').hide();
+                            $('#download-result-btn').data('download-url', response.download_url);
+                            $('#download-result-btn').data('task-id', currentUploadTaskId);
+                            $('#download-result-btn').show();
+                            showToast('处理完成，部分文件失败');
+                        } else {
+                            showToast('处理过程中出现错误');
+                        }
+                        
+                        $('#close-upload-progress').show();
+                        // 设置处理完成标志，允许关闭模态框
+                        uploadProcessingComplete = true;
+                    }
+                },
+                error: function(xhr, status, error) {
+                    log('error', '获取处理进度请求失败', error);
+                }
+            });
+        }, 500);
+    }
+    
+    // 下载结果按钮点击事件
+    $('#download-result-btn').on('click', function() {
+        const downloadUrl = $(this).data('download-url');
+        const taskId = $(this).data('task-id');
+        
+        if (downloadUrl) {
+            // 使用相对路径下载，避免混合内容问题
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // 不立即清理临时文件，让用户可以重新下载
+            // 后端会在任务完成后12小时自动清理过期任务
+            
+            // 关闭模态框
+            $('#upload-progress-modal').modal('hide');
+        }
+    });
+    
+    // 上传处理完成标志
+    let uploadProcessingComplete = false;
+    
+    // 关闭上传进度模态框事件
+    $('#upload-progress-modal').on('hidden.bs.modal', function() {
+        if (!uploadProcessingComplete) {
+            return;
+        }
+        // 停止轮询
+        if (processProgressInterval) {
+            clearInterval(processProgressInterval);
+            processProgressInterval = null;
+        }
+        currentUploadTaskId = null;
+        uploadProcessingComplete = false;
+    });
 });
 
 /**
@@ -2412,6 +2869,11 @@ function loadConfig() {
             $('#convert-thread-count').attr('max', cpuCount);
             $('#convert-thread-count').val(defaultThreads);
             $('#convert-thread-value').text(defaultThreads);
+
+            // 更新上传任务的线程数滑块
+            $('#upload-thread-count').attr('max', cpuCount);
+            $('#upload-thread-count').val(defaultThreads);
+            $('#upload-thread-value').text(defaultThreads);
             
             log('info', '设置当前路径为', baseDir);
             loadFiles();
@@ -2569,6 +3031,14 @@ function loadSupportedFormats() {
             for (const format of formats) {
                 const option = $('<option>').val(format).text(format.toUpperCase());
                 targetFormatSelect.append(option);
+            }
+            
+            // 同时更新上传模态框的目标格式下拉框
+            const uploadTargetFormatSelect = $('#upload-target-format');
+            uploadTargetFormatSelect.empty();
+            for (const format of formats) {
+                const option = $('<option>').val(format).text(format.toUpperCase());
+                uploadTargetFormatSelect.append(option);
             }
             
             // 更新支持的格式全局变量

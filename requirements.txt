@@ -5,3 +5,4 @@ geopy
 natsort
 pypinyin
 gunicorn>=20.0.0
+pikepdf
