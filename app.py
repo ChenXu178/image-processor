@@ -4,6 +4,8 @@ import threading
 import shutil
 from datetime import datetime
 from PIL import Image
+from PIL.ExifTags import TAGS, GPSTAGS
+from PIL import ImageFile
 import concurrent.futures
 import mimetypes
 import logging
@@ -18,6 +20,15 @@ from natsort import natsorted, ns
 from pypinyin import lazy_pinyin
 import locale
 from geopy.geocoders import Nominatim
+import re
+import time
+import json
+from datetime import timedelta
+import zipfile
+import glob
+from exif_mapping import exif_field_map
+from optimize_exif_parsing import extended_value_mappings
+import pikepdf
 
 # 创建log文件夹（如果不存在）
 log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'log')
@@ -91,6 +102,9 @@ def get_app_version():
 
 # 初始化应用版本号
 APP_VERSION = get_app_version()
+
+# 设置PIL处理截断图片
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # 初始化geocoder
 gelocator = Nominatim(user_agent="image-processor", timeout=5)
@@ -245,7 +259,6 @@ def cleanup_completed_tasks(max_age_minutes=60):
     """
     清理已完成的任务（超过指定时间）
     """
-    import time
     now = time.time()
     with tasks_lock:
         keys_to_remove = []
@@ -878,9 +891,7 @@ def preview_image():
     
     # 获取图片信息
     try:
-        # 尝试打开图片，如果是截断的图片，使用ImageFile.LOAD_TRUNCATED_IMAGES选项
-        from PIL import ImageFile
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
+        # 尝试打开图片
         with Image.open(path) as img:
             width, height = img.size
             format = img.format
@@ -890,13 +901,7 @@ def preview_image():
             if hasattr(img, '_getexif'):
                 exif_data = img._getexif()
                 if exif_data:
-                    from PIL.ExifTags import TAGS, GPSTAGS
-                    
-                    # 导入EXIF字段名中英文映射字典
-                    from exif_mapping import exif_field_map
-                    # 导入EXIF标签类型和扩展值映射
-                    from optimize_exif_parsing import extended_value_mappings
-                    # 使用全局的地理编码库配置，避免在请求处理函数内部导入和初始化
+                    # 初始化geopy地理编码器
                     
                     # 将EXIF标签ID转换为可读名称
                     for tag, value in exif_data.items():
@@ -1231,9 +1236,6 @@ def preview_file(filepath):
             return f'Image preview failed: {str(e)}', 500
     
     try:
-        # 尝试打开图片，如果是截断的图片，使用ImageFile.LOAD_TRUNCATED_IMAGES选项
-        from PIL import ImageFile
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
         # 打开图片，检查分辨率
         with Image.open(full_path) as img:
             width, height = img.size
@@ -1319,9 +1321,6 @@ def convert_tiff_preview():
         return '仅支持TIFF文件预览转换', 400
     
     try:
-        # 尝试打开图片，如果是截断的图片，使用ImageFile.LOAD_TRUNCATED_IMAGES选项
-        from PIL import ImageFile
-        ImageFile.LOAD_TRUNCATED_IMAGES = True
         # 打开TIFF图片并转换为PNG
         logger.info(f"开始转换TIFF图片: {full_path}")
         
@@ -1657,7 +1656,6 @@ def search_files():
         }
     
     def run_search_task():
-        import re
         try:
             if is_regex:
                 flags = 0 if case_sensitive else re.IGNORECASE
@@ -2143,7 +2141,6 @@ def convert_images():
             break
         elif os.path.isdir(path):
             # 检查目录中是否包含PDF文件
-            import glob
             pdf_files = glob.glob(os.path.join(path, '*.pdf'), recursive=True)
             if pdf_files:
                 has_pdf = True
@@ -2290,7 +2287,6 @@ def convert_images():
                     dirname = os.path.dirname(img_path)
                     basename = os.path.basename(img_path).split('.')[0]
                     # 查找所有生成的图片文件
-                    import glob
                     output_files = glob.glob(os.path.join(dirname, f"{basename}-*.{target_format}"))
                     final_size = sum(get_file_size(f) for f in output_files)
                     logger.info(f"PDF转图片生成 {len(output_files)} 个文件，总大小: {final_size} bytes")
@@ -2815,7 +2811,6 @@ def upload_images():
             normalized_target = 'jpg' if target_format.lower() == 'jpeg' else target_format.lower()
             
             # 更新总文件数（图片数量 + PDF文件数量，每个PDF按一页计算）
-            from pdf2image import convert_from_path
             pdf_page_count = 0
             if normalized_target == 'jpg':
                 for pdf_file in pdf_files:
@@ -2915,7 +2910,6 @@ def upload_images():
                             # 如果设置了密码，对PDF进行加密
                             if pdf_password:
                                 try:
-                                    import pikepdf
                                     logger.info(f"开始对PDF进行加密: {pdf_output_path}")
                                     
                                     # 打开刚创建的PDF
@@ -3015,7 +3009,6 @@ def upload_images():
                             temp_pdf_path = pdf_path
                             if pdf_password:
                                 try:
-                                    import pikepdf
                                     logger.info(f"尝试解密PDF: {pdf_path}")
                                     
                                     # 尝试打开PDF并解密
@@ -3230,7 +3223,6 @@ def upload_images():
                     download_path = processed_files[0]
                 else:
                     # 多个文件打包成zip
-                    import zipfile
                     zip_path = os.path.join(task_dir, 'processed_files.zip')
                     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                         for f in processed_files:
@@ -3292,7 +3284,6 @@ def save_task_progress_data(task_id, task_dir):
     保存任务进度数据到文件
     将upload_progress_data中的任务信息保存为JSON文件，方便后续查看
     """
-    import json
     
     with upload_progress_lock:
         if task_id not in upload_progress_data:
@@ -3318,7 +3309,6 @@ def cleanup_expired_tasks():
     清理超过12小时已完成或出错的临时文件
     使用end_time判断过期时间
     """
-    from datetime import timedelta
     
     expiration_time = timedelta(hours=12)
     current_time = datetime.now()
