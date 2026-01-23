@@ -2797,6 +2797,13 @@ def upload_images():
             for file_path in uploaded_files:
                 if os.path.isfile(file_path):
                     if file_path.lower().endswith('.pdf'):
+                        # 如果设置了跳过PDF，跳过PDF文件
+                        if skip_pdf:
+                            logger.info(f"跳过PDF文件: {file_path}")
+                            with upload_progress_lock:
+                                if task_id in upload_progress_data:
+                                    upload_progress_data[task_id]['failed_files'].append(f"{file_path} (跳过处理)")
+                            continue
                         # PDF文件单独处理
                         pdf_files.append(file_path)
                     elif is_image_file(file_path):
@@ -2887,7 +2894,7 @@ def upload_images():
                                 with upload_progress_lock:
                                     if task_id in upload_progress_data:
                                         upload_progress_data[task_id]['processed'] += 1
-                                        upload_progress_data[task_id]['failed_files'].append(img_path)
+                                        upload_progress_data[task_id]['failed_files'].append(f"{img_path} (无法识别图片格式)")
                         
                         # 生成PDF文件名
                         if len(all_images) > 0:
@@ -2991,7 +2998,7 @@ def upload_images():
                             with upload_progress_lock:
                                 if task_id in upload_progress_data:
                                     upload_progress_data[task_id]['processed'] += 1
-                                    upload_progress_data[task_id]['failed_files'].append(img_path)
+                                    upload_progress_data[task_id]['failed_files'].append(f"{img_path} ({str(e)})")
                     
                     def convert_uploaded_pdf(pdf_path):
                         nonlocal task_id
@@ -3025,7 +3032,7 @@ def upload_images():
                                     with upload_progress_lock:
                                         if task_id in upload_progress_data:
                                             upload_progress_data[task_id]['processed'] += 1
-                                            upload_progress_data[task_id]['failed_files'].append(pdf_path)
+                                            upload_progress_data[task_id]['failed_files'].append(f"{pdf_path} (密码错误)")
                                     return
                                 except Exception as e:
                                     logger.error(f"PDF解密失败: {pdf_path}, 错误: {e}")
