@@ -2298,24 +2298,35 @@ def convert_images():
                     if new_path != img_path:  # 只有当新路径和原路径不同时才删除原文件
                         # 检查转换后的文件是否是新创建的（不是跳过的）
                         if os.path.exists(new_path):
-                            # 检查原文件是否与新文件不同
-                            if os.path.abspath(new_path) != os.path.abspath(img_path):
-                                # 删除原文件
-                                os.remove(img_path)
-                                final_size = get_file_size(new_path)
-                                logger.info(f"转换完成: {img_path} -> {new_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
-                                with progress_lock:
-                                    progress_data['processed'] += 1
-                                    progress_data['original_size'] += original_size
-                                    progress_data['final_size'] += final_size
-                            else:
+                            # 检查新文件是否为空，防止文件创建失败导致源文件被清除
+                            new_file_size = get_file_size(new_path)
+                            if new_file_size == 0:
+                                logger.error(f"转换后的文件为空，不删除源文件: {new_path}")
                                 final_size = original_size
-                                logger.info(f"转换后的文件与原文件相同，跳过删除: {img_path}")
                                 with progress_lock:
                                     progress_data['processed'] += 1
                                     progress_data['original_size'] += original_size
                                     progress_data['final_size'] += final_size
-                                    progress_data['skipped_files'].append(img_path)
+                                    progress_data['failed_files'].append(img_path)
+                            else:
+                                # 检查原文件是否与新文件不同
+                                if os.path.abspath(new_path) != os.path.abspath(img_path):
+                                    # 删除原文件
+                                    os.remove(img_path)
+                                    final_size = new_file_size
+                                    logger.info(f"转换完成: {img_path} -> {new_path}, 原大小: {original_size} bytes, 新大小: {final_size} bytes")
+                                    with progress_lock:
+                                        progress_data['processed'] += 1
+                                        progress_data['original_size'] += original_size
+                                        progress_data['final_size'] += final_size
+                                else:
+                                    final_size = original_size
+                                    logger.info(f"转换后的文件与原文件相同，跳过删除: {img_path}")
+                                    with progress_lock:
+                                        progress_data['processed'] += 1
+                                        progress_data['original_size'] += original_size
+                                        progress_data['final_size'] += final_size
+                                        progress_data['skipped_files'].append(img_path)
                         else:
                             final_size = original_size
                             logger.error(f"转换失败: {img_path}")

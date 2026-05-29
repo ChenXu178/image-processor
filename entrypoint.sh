@@ -1,5 +1,10 @@
 #!/bin/bash
 
+# 设置语言环境，支持Unicode文件名（包括Emoji）
+export LANG=zh_CN.UTF-8
+export LC_ALL=zh_CN.UTF-8
+export LC_CTYPE=zh_CN.UTF-8
+
 # 设置默认值
 PUID=${PUID:-1000}
 PGID=${PGID:-1000}

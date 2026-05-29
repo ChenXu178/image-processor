@@ -56,6 +56,11 @@ EXPOSE 5000
 ARG APP_NAME
 ARG APP_VERSION
 
+# 设置语言环境变量，支持Unicode文件名（包括Emoji）
+ENV LANG=zh_CN.UTF-8
+ENV LC_ALL=zh_CN.UTF-8
+ENV LC_CTYPE=zh_CN.UTF-8
+
 # 设置环境变量
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
