@@ -521,7 +521,8 @@ def convert_image_with_imagemagick(img_path, target_format, quality):
         
         # 生成新文件名
         dirname = os.path.dirname(img_path)
-        basename = os.path.basename(img_path).split('.')[0]
+        # 使用os.path.splitext正确获取不含扩展名的文件名，避免文件名中包含多个点号时出错
+        basename = os.path.splitext(os.path.basename(img_path))[0]
         
         # 如果是PDF文件，需要特殊处理
         if ext == 'pdf':
@@ -2285,7 +2286,8 @@ def convert_images():
                     logger.info(f"PDF转图片完成，保留原文件: {img_path}")
                     # 计算转换后所有图片的总大小
                     dirname = os.path.dirname(img_path)
-                    basename = os.path.basename(img_path).split('.')[0]
+                    # 使用os.path.splitext正确获取不含扩展名的文件名
+                    basename = os.path.splitext(os.path.basename(img_path))[0]
                     # 查找所有生成的图片文件
                     output_files = glob.glob(os.path.join(dirname, f"{basename}-*.{target_format}"))
                     final_size = sum(get_file_size(f) for f in output_files)
@@ -2910,7 +2912,8 @@ def upload_images():
                         # 生成PDF文件名
                         if len(all_images) > 0:
                             # 使用第一张图片的文件名作为PDF文件名
-                            first_img_name = os.path.basename(all_images[0]).split('.')[0]
+                            # 使用os.path.splitext正确获取不含扩展名的文件名
+                            first_img_name = os.path.splitext(os.path.basename(all_images[0]))[0]
                         else:
                             first_img_name = 'combined'
                         
@@ -3056,7 +3059,8 @@ def upload_images():
                             logger.info(f"PDF转换完成，共 {len(images)} 页")
                             
                             dirname = os.path.dirname(pdf_path)
-                            basename = os.path.basename(pdf_path).split('.')[0]
+                            # 使用os.path.splitext正确获取不含扩展名的文件名
+                            basename = os.path.splitext(os.path.basename(pdf_path))[0]
                             
                             for i, img in enumerate(images):
                                 output_filename = os.path.join(dirname, f"{basename}-{i+1:03d}.jpg")
@@ -3155,7 +3159,8 @@ def upload_images():
                 # 如果目标格式是PDF，查找生成的PDF文件
                 if normalized_target == 'pdf':
                     for f in all_images:
-                        basename = os.path.basename(f).split('.')[0]
+                        # 使用os.path.splitext正确获取不含扩展名的文件名
+                        basename = os.path.splitext(os.path.basename(f))[0]
                         pdf_path = os.path.join(task_dir, f"{basename}.pdf")
                         if os.path.exists(pdf_path):
                             processed_files.append(pdf_path)
@@ -3166,7 +3171,8 @@ def upload_images():
                         ext = os.path.splitext(f)[1].lower()[1:]
                         if ext != 'pdf':
                             normalized_ext = 'jpg' if ext == 'jpeg' else ext
-                            basename = os.path.basename(f).split('.')[0]
+                            # 使用os.path.splitext正确获取不含扩展名的文件名
+                            basename = os.path.splitext(os.path.basename(f))[0]
                             new_path = os.path.join(task_dir, f"{basename}.{normalized_target}")
                             
                             if normalized_ext != normalized_target:
@@ -3199,7 +3205,8 @@ def upload_images():
                 # 收集PDF转换后的图片（每页一张）
                 if normalized_target == 'jpg':
                     for pdf_file in pdf_files:
-                        basename = os.path.basename(pdf_file).split('.')[0]
+                        # 使用os.path.splitext正确获取不含扩展名的文件名
+                        basename = os.path.splitext(os.path.basename(pdf_file))[0]
                         # 查找PDF转换后的所有页面图片
                         page_num = 1
                         while True:
